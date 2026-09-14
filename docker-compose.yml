@@ -1,0 +1,7 @@
+services:
+  fantasy_bot:
+    image: ghcr.io/dsaf123/fantasy_bot:latest
+    container_name: fantasy_bot
+    restart: unless-stopped
+    env_file:
+      - .env
