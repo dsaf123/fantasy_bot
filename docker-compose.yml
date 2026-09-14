@@ -3,5 +3,15 @@ services:
     image: ghcr.io/dsaf123/fantasy_bot:latest
     container_name: fantasy_bot
     restart: unless-stopped
-    env_file:
-      - .env
+    environment:
+      LEAGUE_ID: ${LEAGUE_ID}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
+      TIMEZONE: ${TIMEZONE}
+      CLOSE_SCORES_THRESHOLD: ${CLOSE_SCORES_THRESHOLD}
+      DAILY_WAIVER: ${DAILY_WAIVER}
+      MONITOR_REPORT: ${MONITOR_REPORT}
+      INIT_MSG: ${INIT_MSG}
+      TEAM_ABBREVIATIONS: ${TEAM_ABBREVIATIONS}
+      LLM_PROVIDER: ${LLM_PROVIDER}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_MODEL: ${LLM_MODEL}

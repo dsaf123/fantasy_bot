@@ -39,8 +39,9 @@ ghcr.io/dsaf123/fantasy_bot:latest
 docker compose up -d
 ```
 
-[docker-compose.yml](docker-compose.yml) pulls the GHCR image and loads
-config from `.env` in the same directory.
+[docker-compose.yml](docker-compose.yml) pulls the GHCR image; the
+`environment:` block uses `${VAR}` substitution, which `docker compose`
+fills in automatically from a `.env` file in the same directory.
 
 ### Portainer
 
@@ -48,8 +49,13 @@ config from `.env` in the same directory.
 2. Choose **Repository**, point it at this GitHub repo, and set the compose
    path to `docker-compose.yml` — or choose **Web editor** and paste the
    contents of `docker-compose.yml` directly.
-3. Under the stack's environment variables, add the same variables from
-   `.env.example` (or upload a `.env` file if you're using the web editor).
+3. In the **Environment variables** section of the stack form, add each
+   variable from `.env.example` as a key/value pair (or use the "Load
+   variables from .env file" option and paste the file's contents). Portainer
+   uses these for the `${VAR}` substitution in the compose file — don't rely
+   on `env_file: .env`, since Portainer doesn't write an actual `.env` file
+   into the stack's directory just because you filled in that form, which
+   causes a `.env not found` deploy error.
 4. Deploy the stack. Portainer will pull `ghcr.io/dsaf123/fantasy_bot:latest`
    and start the bot with `restart: unless-stopped`.
 5. To pick up new pushes to `main`, re-pull and redeploy the stack (Portainer
