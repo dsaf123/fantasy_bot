@@ -63,6 +63,8 @@ func main() {
 				log.Printf("portal: %v", err)
 			}
 		}()
+	} else {
+		log.Printf("portal: PORTAL_PASSWORD not set, portal disabled")
 	}
 
 	if err := scheduler.Run(ctx, cfg, mgr, b); err != nil {

@@ -63,14 +63,22 @@ game threshold, team abbreviations, AI weekly recap provider, web portal).
 
 ## Web Portal
 
-Set `PORTAL_PASSWORD` to turn on a small password-protected web UI, served
-on `PORTAL_PORT` (default `8080`), for changing four things without editing
-`.env` or restarting the bot:
+Set `PORTAL_PASSWORD` to turn on a small password-protected web UI for
+changing four things without editing `.env` or restarting the bot:
 
 - Turning any individual scheduled message (see the table above) on or off
 - Which day(s) of the week the Waiver Report posts on
 - The timezone used for "league time" messages
 - The AI Weekly Recap's system prompt
+
+**The portal is entirely off unless `PORTAL_PASSWORD` is set.** `PORTAL_PORT`
+(default `8080`) only picks which port the portal listens on *if* it's
+enabled — setting `PORTAL_PORT` without `PORTAL_PASSWORD` does nothing, and
+is a common trap when you're changing the port to dodge a conflict (see
+[Portainer](#portainer) below) and forget the portal also needs the password
+var. On startup the bot logs exactly one of `portal: PORTAL_PASSWORD not
+set, portal disabled` or `portal: starting on :<port>`, so check the
+container logs for one of those two lines if the portal won't load.
 
 Anything changed in the portal takes priority over the matching `.env`
 value; anything left alone keeps using its `.env`-derived default (or, for
@@ -132,7 +140,11 @@ named volume for the [web portal](#web-portal)'s settings — set
    uses these for the `${VAR}` substitution in the compose file — don't rely
    on `env_file: .env`, since Portainer doesn't write an actual `.env` file
    into the stack's directory just because you filled in that form, which
-   causes a `.env not found` deploy error.
+   causes a `.env not found` deploy error. Several settings, including the
+   entire [web portal](#web-portal), are commented out in `.env.example`
+   since they're opt-in — add `PORTAL_PASSWORD` explicitly if you want the
+   portal (see the bolded note in that section: `PORTAL_PORT` alone does
+   nothing).
 4. Deploy the stack. Portainer will pull `ghcr.io/dsaf123/fantasy_bot:latest`
    and start the bot with `restart: unless-stopped`. If you set
    `PORTAL_PASSWORD`, the [web portal](#web-portal) is now reachable at

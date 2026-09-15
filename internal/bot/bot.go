@@ -42,10 +42,16 @@ const (
 	// report.LeagueContext.WinMatrix): every team's record if it had played
 	// every other team every week, tallied through the most recently
 	// completed week.
-	ReportWinMatrix     ReportType = "win_matrix"
+	ReportWinMatrix ReportType = "win_matrix"
+	// ReportPowerRankings posts each team's power score, playoff odds, and
+	// week-over-week trend (see report.LeagueContext.PowerRankings), ranked
+	// through the most recently completed week.
 	ReportPowerRankings ReportType = "power_rankings"
-	ReportFortuneIndex  ReportType = "fortune_index"
-	ReportTrophies      ReportType = "trophies"
+	// ReportFortuneIndex posts each team's season-long schedule-luck ranking
+	// (see report.LeagueContext.FortuneIndex), tallied through the most
+	// recently completed week.
+	ReportFortuneIndex ReportType = "fortune_index"
+	ReportTrophies     ReportType = "trophies"
 	// ReportTrophyCase posts a season-long crosstab image of every team's
 	// trophy counts (see report.LeagueContext.TrophyCaseImage), tallied
 	// through the most recently completed week.
@@ -204,10 +210,15 @@ func (b *Bot) Run(ctx context.Context, rt ReportType) error {
 		return b.sender.SendRich(ctx, leagueCtx.WinMatrix(history))
 
 	case ReportPowerRankings:
-		history, err := b.matchupHistory(ctx, week)
+		finalWeek := week - 1
+		if finalWeek < 1 {
+			return nil // nothing to rank before week 1 is complete
+		}
+		history, err := b.matchupHistory(ctx, finalWeek)
 		if err != nil {
 			return err
 		}
+		leagueCtx.Week = finalWeek
 		text = leagueCtx.PowerRankings(history)
 		if err := b.sender.Send(ctx, text); err != nil {
 			return err
@@ -222,10 +233,15 @@ func (b *Bot) Run(ctx context.Context, rt ReportType) error {
 		return b.sender.SendImage(ctx, "Power Rankings — Season Trend", "power_rankings.png", chartPNG)
 
 	case ReportFortuneIndex:
-		history, err := b.matchupHistory(ctx, week)
+		finalWeek := week - 1
+		if finalWeek < 1 {
+			return nil // nothing to tally before week 1 is complete
+		}
+		history, err := b.matchupHistory(ctx, finalWeek)
 		if err != nil {
 			return err
 		}
+		leagueCtx.Week = finalWeek
 		text = leagueCtx.FortuneIndex(history)
 
 	case ReportTrophies:

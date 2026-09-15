@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -60,7 +61,10 @@ func Serve(ctx context.Context, cfg *config.Config, mgr *settings.Manager) error
 	}
 
 	errCh := make(chan error, 1)
-	go func() { errCh <- httpServer.ListenAndServe() }()
+	go func() {
+		log.Printf("portal: starting on :%s", cfg.PortalPort)
+		errCh <- httpServer.ListenAndServe()
+	}()
 
 	select {
 	case <-ctx.Done():
