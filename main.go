@@ -13,12 +13,14 @@ import (
 
 	"fantasy_bot/internal/bot"
 	"fantasy_bot/internal/config"
+	"fantasy_bot/internal/portal"
 	"fantasy_bot/internal/scheduler"
+	"fantasy_bot/internal/settings"
 )
 
 func main() {
 	report := flag.String("report", "", "run a single report and exit instead of starting the scheduler "+
-		"(one of: init, scoreboard, projected_scoreboard, gameday, matchups, standings, power_rankings, fortune_index, trophies, close_scores, waiver, monitor, final, recap)")
+		"(one of: init, scoreboard, projected_scoreboard, gameday, matchups, standings, win_matrix, power_rankings, fortune_index, trophies, trophy_case, close_scores, waiver, monitor, final, recap)")
 	dryRun := flag.Bool("dry-run", false, "print report output to stdout instead of posting to Discord")
 	flag.Parse()
 
@@ -27,11 +29,16 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
+	mgr, err := settings.Load(cfg.SettingsFile)
+	if err != nil {
+		log.Fatalf("settings: %v", err)
+	}
+
 	var b *bot.Bot
 	if *dryRun {
-		b = bot.NewWithSender(cfg, stdoutSender{})
+		b = bot.NewWithSender(cfg, mgr, stdoutSender{})
 	} else {
-		b = bot.New(cfg)
+		b = bot.New(cfg, mgr)
 	}
 
 	ctx := context.Background()
@@ -47,7 +54,18 @@ func main() {
 		log.Printf("init message failed: %v", err)
 	}
 
-	if err := scheduler.Run(ctx, cfg, b); err != nil {
+	// The web config portal is supplementary to the bot's core scheduling
+	// function, so a failure to start it (e.g. the port is already in use)
+	// is logged rather than fatal.
+	if cfg.PortalPassword != "" {
+		go func() {
+			if err := portal.Serve(ctx, cfg, mgr); err != nil {
+				log.Printf("portal: %v", err)
+			}
+		}()
+	}
+
+	if err := scheduler.Run(ctx, cfg, mgr, b); err != nil {
 		log.Fatalf("scheduler: %v", err)
 	}
 }

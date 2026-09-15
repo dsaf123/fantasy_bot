@@ -15,6 +15,7 @@ import (
 	"fantasy_bot/internal/discord"
 	"fantasy_bot/internal/llm"
 	"fantasy_bot/internal/report"
+	"fantasy_bot/internal/settings"
 	"fantasy_bot/internal/sleeper"
 )
 
@@ -34,15 +35,24 @@ const (
 	ReportWeekdayScoreboard ReportType = "weekday_scoreboard"
 	// ReportGameday posts the in-progress scoreboard followed by a close
 	// scores callout, for the Sunday-afternoon/evening gameday windows.
-	ReportGameday       ReportType = "gameday"
-	ReportMatchups      ReportType = "matchups"
-	ReportStandings     ReportType = "standings"
+	ReportGameday   ReportType = "gameday"
+	ReportMatchups  ReportType = "matchups"
+	ReportStandings ReportType = "standings"
+	// ReportWinMatrix posts the league's all-play standings (see
+	// report.LeagueContext.WinMatrix): every team's record if it had played
+	// every other team every week, tallied through the most recently
+	// completed week.
+	ReportWinMatrix     ReportType = "win_matrix"
 	ReportPowerRankings ReportType = "power_rankings"
 	ReportFortuneIndex  ReportType = "fortune_index"
 	ReportTrophies      ReportType = "trophies"
-	ReportCloseScores   ReportType = "close_scores"
-	ReportWaiver        ReportType = "waiver"
-	ReportMonitor       ReportType = "monitor"
+	// ReportTrophyCase posts a season-long crosstab image of every team's
+	// trophy counts (see report.LeagueContext.TrophyCaseImage), tallied
+	// through the most recently completed week.
+	ReportTrophyCase  ReportType = "trophy_case"
+	ReportCloseScores ReportType = "close_scores"
+	ReportWaiver      ReportType = "waiver"
+	ReportMonitor     ReportType = "monitor"
 	// ReportFinal posts the previous week's final scores plus trophies,
 	// mirroring gamedaybot's Tuesday-morning "get_final" job.
 	ReportFinal ReportType = "final"
@@ -51,21 +61,6 @@ const (
 	// configured (see config.LLMConfig).
 	ReportRecap ReportType = "recap"
 )
-
-// recapSystemPrompt is the persona/instructions given to the LLM for
-// ReportRecap; the league data itself is the user prompt (see
-// report.LeagueContext.RecapDigest).
-const recapSystemPrompt = `You are the ghostwriter for a fantasy football league commissioner's weekly newsletter, posted to the league's Discord. You write for people who already know the league - be specific, use team names, and have fun with it.
-
-You'll be given a data digest covering: current standings, active win/loss streaks, season-long head-to-head series between teams that have played more than once, the playoff race, and the week's biggest lineup-decision regret.
-
-Write a short newsletter (250-400 words) that is the ONLY message all season that looks across weeks rather than just at the week that just finished. Hit these beats, in whatever order reads best:
-- Call out any notable streaks (hot teams, cold teams).
-- If there's a season head-to-head series, mention the rivalry and who's winning it. If there isn't one yet, skip that beat entirely rather than forcing it.
-- Give an honest read on the playoff race: who's comfortably in, who's on the bubble, who's in trouble.
-- Land on the week's lineup regret as a specific, slightly roasting anecdote about the manager involved.
-
-Use Discord markdown (bold with **double asterisks**, a heading or two, maybe a couple of well-placed emoji) but do NOT wrap anything in a code block or backticks. Sign off as "The Commish". Do not invent facts, scores, or players beyond what's in the digest.`
 
 // Sender posts finished report text and images somewhere — a Discord
 // webhook by default, or e.g. stdout for a dry run during testing.
@@ -88,21 +83,26 @@ type Bot struct {
 	// llm is nil unless an AI Weekly Recap provider is configured (see
 	// config.LLMConfig); ReportRecap no-ops when it's nil.
 	llm llm.Client
+	// settingsMgr supplies portal overrides at report-generation time (e.g.
+	// the recap prompt), so a portal edit takes effect on the very next run
+	// without needing the scheduler to reload anything.
+	settingsMgr *settings.Manager
 }
 
-func New(cfg *config.Config) *Bot {
-	return NewWithSender(cfg, discord.NewClient(cfg.DiscordWebhookURL))
+func New(cfg *config.Config, mgr *settings.Manager) *Bot {
+	return NewWithSender(cfg, mgr, discord.NewClient(cfg.DiscordWebhookURL))
 }
 
 // NewWithSender is like New but posts reports to sender instead of Discord,
 // e.g. a stdout printer for dry-run testing/validation.
-func NewWithSender(cfg *config.Config, sender Sender) *Bot {
+func NewWithSender(cfg *config.Config, mgr *settings.Manager, sender Sender) *Bot {
 	client := sleeper.NewClient()
 	b := &Bot{
-		cfg:     cfg,
-		sleeper: client,
-		players: sleeper.NewPlayerCache(client, 24*time.Hour),
-		sender:  sender,
+		cfg:         cfg,
+		sleeper:     client,
+		players:     sleeper.NewPlayerCache(client, 24*time.Hour),
+		sender:      sender,
+		settingsMgr: mgr,
 	}
 	if cfg.LLM.APIKey != "" {
 		llmClient, err := llm.New(llm.Config{Provider: cfg.LLM.Provider, APIKey: cfg.LLM.APIKey, Model: cfg.LLM.Model})
@@ -192,6 +192,17 @@ func (b *Bot) Run(ctx context.Context, rt ReportType) error {
 	case ReportStandings:
 		text = leagueCtx.Standings()
 
+	case ReportWinMatrix:
+		finalWeek := week - 1
+		if finalWeek < 1 {
+			return nil // nothing to tally before week 1 is complete
+		}
+		history, err := b.matchupHistory(ctx, finalWeek)
+		if err != nil {
+			return err
+		}
+		return b.sender.SendRich(ctx, leagueCtx.WinMatrix(history))
+
 	case ReportPowerRankings:
 		history, err := b.matchupHistory(ctx, week)
 		if err != nil {
@@ -227,6 +238,29 @@ func (b *Bot) Run(ctx context.Context, rt ReportType) error {
 			return err
 		}
 		text = leagueCtx.Trophies(matchups, projections)
+
+	case ReportTrophyCase:
+		finalWeek := week - 1
+		if finalWeek < 1 {
+			return nil // nothing to tally before week 1 is complete
+		}
+		matchupHist, err := b.matchupHistory(ctx, finalWeek)
+		if err != nil {
+			return err
+		}
+		projHist, err := b.projectionHistory(ctx, leagueCtx, finalWeek)
+		if err != nil {
+			return err
+		}
+		imgPNG, err := leagueCtx.TrophyCaseImage(matchupHist, projHist)
+		if err != nil {
+			return err
+		}
+		if imgPNG == nil {
+			return nil
+		}
+		caption := fmt.Sprintf("Trophy Case — season totals through Week %d\n%s", finalWeek, report.TrophyCaseLegend())
+		return b.sender.SendImage(ctx, caption, "trophy_case.png", imgPNG)
 
 	case ReportCloseScores:
 		matchups, err := b.matchups(ctx, week)
@@ -274,7 +308,8 @@ func (b *Bot) Run(ctx context.Context, rt ReportType) error {
 			return err
 		}
 		digest := leagueCtx.RecapDigest(history, finalWeek)
-		recap, err := b.llm.Generate(ctx, recapSystemPrompt, digest)
+		systemPrompt := b.settingsMgr.Get().EffectiveRecapPrompt(settings.DefaultRecapPrompt)
+		recap, err := b.llm.Generate(ctx, systemPrompt, digest)
 		if err != nil {
 			return fmt.Errorf("bot: generate weekly recap: %w", err)
 		}
@@ -306,6 +341,21 @@ func (b *Bot) matchupHistory(ctx context.Context, throughWeek int) (map[int][]sl
 			return nil, err
 		}
 		history[week] = matchups
+	}
+	return history, nil
+}
+
+// projectionHistory fetches every week's player projections from week 1
+// through throughWeek, for TrophyCase's season-long achiever tally -
+// mirrors matchupHistory's per-week fetch loop.
+func (b *Bot) projectionHistory(ctx context.Context, leagueCtx *report.LeagueContext, throughWeek int) (map[int][]sleeper.PlayerProjection, error) {
+	history := make(map[int][]sleeper.PlayerProjection, throughWeek)
+	for week := 1; week <= throughWeek; week++ {
+		projections, err := b.projections(ctx, leagueCtx, week)
+		if err != nil {
+			return nil, err
+		}
+		history[week] = projections
 	}
 	return history, nil
 }

@@ -1,0 +1,26 @@
+{{define "login"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>fantasy_bot portal</title>
+  {{template "styles" .}}
+</head>
+<body>
+  <div class="wrap" style="max-width:360px; margin-top:80px;">
+    <div class="card">
+      <h2>fantasy_bot portal</h2>
+      {{if .Error}}<div class="banner error">{{.Error}}</div>{{end}}
+      <form method="post" action="/login">
+        <div class="field">
+          <label class="field-label" for="password">Password</label>
+          <input type="password" id="password" name="password" autofocus required>
+        </div>
+        <button type="submit" class="primary">Log in</button>
+      </form>
+    </div>
+  </div>
+</body>
+</html>
+{{end}}

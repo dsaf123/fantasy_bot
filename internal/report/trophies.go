@@ -24,31 +24,14 @@ func (c *LeagueContext) Trophies(matchups []sleeper.Matchup, projections []sleep
 		return NoMatchupData
 	}
 
-	scores := make([]weeklyScore, 0, len(matchups))
-	for _, m := range matchups {
-		scores = append(scores, weeklyScore{rosterID: m.RosterID, points: m.Points})
-	}
+	scores := sortedScores(matchups)
 	if len(scores) == 0 {
 		return NoMatchupData
 	}
-
-	sort.Slice(scores, func(i, j int) bool { return scores[i].points > scores[j].points })
 	high := scores[0]
 	low := scores[len(scores)-1]
 
-	var closest, blowout *Game
-	for i := range games {
-		g := &games[i]
-		if g.Away.RosterID == -1 {
-			continue
-		}
-		if closest == nil || g.Margin() < closest.Margin() {
-			closest = g
-		}
-		if blowout == nil || g.Margin() > blowout.Margin() {
-			blowout = g
-		}
-	}
+	closest, blowout := blowoutAndClosest(games)
 
 	var out strings.Builder
 	for _, g := range games {
@@ -87,6 +70,34 @@ func (c *LeagueContext) Trophies(matchups []sleeper.Matchup, projections []sleep
 	return out.String()
 }
 
+// sortedScores builds each roster's weekly score, sorted highest first.
+func sortedScores(matchups []sleeper.Matchup) []weeklyScore {
+	scores := make([]weeklyScore, 0, len(matchups))
+	for _, m := range matchups {
+		scores = append(scores, weeklyScore{rosterID: m.RosterID, points: m.Points})
+	}
+	sort.Slice(scores, func(i, j int) bool { return scores[i].points > scores[j].points })
+	return scores
+}
+
+// blowoutAndClosest finds the week's closest-margin and largest-margin
+// decided games, skipping byes.
+func blowoutAndClosest(games []Game) (closest, blowout *Game) {
+	for i := range games {
+		g := &games[i]
+		if g.Away.RosterID == -1 {
+			continue
+		}
+		if closest == nil || g.Margin() < closest.Margin() {
+			closest = g
+		}
+		if blowout == nil || g.Margin() > blowout.Margin() {
+			blowout = g
+		}
+	}
+	return closest, blowout
+}
+
 // trophyBlock renders one trophy as gamedaybot's two-line, emoji-bracketed
 // Discord entry: a title line and a content line, each ending in the
 // trailing double space Discord's Markdown needs for a line break.
@@ -102,11 +113,11 @@ func (g Game) loserOf() int {
 	return g.Home.RosterID
 }
 
-// luckTrophyBlocks finds the "luckiest" winner (the team that won its game
-// but would have lost to the most other teams' scores that week) and the
+// luckWinners finds the "luckiest" winner (the team that won its game but
+// would have lost to the most other teams' scores that week) and the
 // "unluckiest" loser (lost its game but would have beaten the most other
 // teams' scores). This only needs the week's scores, not projections.
-func (c *LeagueContext) luckTrophyBlocks(games []Game, scores []weeklyScore) []string {
+func luckWinners(games []Game, scores []weeklyScore) (luckyID, luckyBeat int, haveLucky bool, unluckyID, unluckyBeat int, haveUnlucky bool) {
 	pointsByRoster := make(map[int]float64, len(scores))
 	for _, s := range scores {
 		pointsByRoster[s.rosterID] = s.points
@@ -123,10 +134,7 @@ func (c *LeagueContext) luckTrophyBlocks(games []Game, scores []weeklyScore) []s
 		return count
 	}
 
-	var luckiestID, unluckiestID int
-	haveLuckiest, haveUnluckiest := false, false
-	luckiestBeat, unluckiestBeat := len(scores)+1, -1
-
+	luckyBeat, unluckyBeat = len(scores)+1, -1
 	for _, g := range games {
 		if g.Away.RosterID == -1 {
 			continue
@@ -139,52 +147,55 @@ func (c *LeagueContext) luckTrophyBlocks(games []Game, scores []weeklyScore) []s
 
 		// Lucky: the winner who'd have lost to the most other teams' scores
 		// that week, i.e. the smallest beat-count among winners.
-		if b := beatCount(winner); !haveLuckiest || b < luckiestBeat {
-			luckiestBeat = b
-			luckiestID = winner
-			haveLuckiest = true
+		if b := beatCount(winner); !haveLucky || b < luckyBeat {
+			luckyBeat = b
+			luckyID = winner
+			haveLucky = true
 		}
 		// Unlucky: the loser who'd have beaten the most other teams' scores
 		// that week, i.e. the largest beat-count among losers.
-		if b := beatCount(loser); !haveUnluckiest || b > unluckiestBeat {
-			unluckiestBeat = b
-			unluckiestID = loser
-			haveUnluckiest = true
+		if b := beatCount(loser); !haveUnlucky || b > unluckyBeat {
+			unluckyBeat = b
+			unluckyID = loser
+			haveUnlucky = true
 		}
 	}
+	return luckyID, luckyBeat, haveLucky, unluckyID, unluckyBeat, haveUnlucky
+}
+
+// luckTrophyBlocks renders the Lucky/Unlucky trophy text blocks (see
+// luckWinners for the winner-selection logic).
+func (c *LeagueContext) luckTrophyBlocks(games []Game, scores []weeklyScore) []string {
+	luckyID, luckyBeat, haveLucky, unluckyID, unluckyBeat, haveUnlucky := luckWinners(games, scores)
 
 	var blocks []string
 	others := len(scores) - 1
-	if haveLuckiest {
+	if haveLucky {
 		blocks = append(blocks, trophyBlock("🍀️", "Lucky",
 			fmt.Sprintf("%s was %d-%d against the league, but still got the win",
-				c.TeamName(luckiestID), luckiestBeat, others-luckiestBeat)))
+				c.TeamName(luckyID), luckyBeat, others-luckyBeat)))
 	}
-	if haveUnluckiest {
+	if haveUnlucky {
 		blocks = append(blocks, trophyBlock("😡️", "Unlucky",
 			fmt.Sprintf("%s was %d-%d against the league, but still took an L",
-				c.TeamName(unluckiestID), unluckiestBeat, others-unluckiestBeat)))
+				c.TeamName(unluckyID), unluckyBeat, others-unluckyBeat)))
 	}
 	return blocks
 }
 
-// achieverTrophyBlocks finds the team that beat its pre-week projection by
-// the widest margin (overachiever) and the team that fell short of its
+// achieverWinners finds the team that beat its pre-week projection by the
+// widest margin (overachiever) and the team that fell short of its
 // projection by the widest margin (underachiever). A team's projection is
 // the sum of its starters' projected points for the week.
-func (c *LeagueContext) achieverTrophyBlocks(matchups []sleeper.Matchup, projections []sleeper.PlayerProjection) []string {
+func (c *LeagueContext) achieverWinners(matchups []sleeper.Matchup, projections []sleeper.PlayerProjection) (overID int, overDiff float64, haveOver bool, underID int, underDiff float64, haveUnder bool) {
 	if len(projections) == 0 {
-		return nil
+		return 0, 0, false, 0, 0, false
 	}
 	projByPlayer := make(map[string]float64, len(projections))
 	scoringType := c.ScoringType()
 	for _, p := range projections {
 		projByPlayer[p.PlayerID] = p.Points(scoringType)
 	}
-
-	var overID, underID int
-	haveOver, haveUnder := false, false
-	var overDiff, underDiff float64
 
 	for _, m := range matchups {
 		var projected float64
@@ -203,6 +214,13 @@ func (c *LeagueContext) achieverTrophyBlocks(matchups []sleeper.Matchup, project
 			haveUnder = true
 		}
 	}
+	return overID, overDiff, haveOver, underID, underDiff, haveUnder
+}
+
+// achieverTrophyBlocks renders the Overachiever/Underachiever trophy text
+// blocks (see achieverWinners for the winner-selection logic).
+func (c *LeagueContext) achieverTrophyBlocks(matchups []sleeper.Matchup, projections []sleeper.PlayerProjection) []string {
+	overID, overDiff, haveOver, underID, underDiff, haveUnder := c.achieverWinners(matchups, projections)
 
 	var blocks []string
 	if haveOver {
@@ -216,14 +234,10 @@ func (c *LeagueContext) achieverTrophyBlocks(matchups []sleeper.Matchup, project
 	return blocks
 }
 
-// managerTrophyBlocks finds the best and worst manager of the week by the
+// managerWinners finds the best and worst manager of the week by the
 // percentage of each team's optimal (highest-scoring legal) lineup they
 // actually started, mirroring gamedaybot's "Best/Worst Manager" trophies.
-func (c *LeagueContext) managerTrophyBlocks(matchups []sleeper.Matchup) []string {
-	var bestID, worstID int
-	haveBest, haveWorst := false, false
-	var bestPct, worstPct, worstBenchLeft float64
-
+func (c *LeagueContext) managerWinners(matchups []sleeper.Matchup) (bestID int, bestPct float64, haveBest bool, worstID int, worstPct, worstBenchLeft float64, haveWorst bool) {
 	for _, m := range matchups {
 		optimal := c.optimalLineupPoints(m)
 		if optimal <= 0 {
@@ -242,6 +256,13 @@ func (c *LeagueContext) managerTrophyBlocks(matchups []sleeper.Matchup) []string
 			haveWorst = true
 		}
 	}
+	return bestID, bestPct, haveBest, worstID, worstPct, worstBenchLeft, haveWorst
+}
+
+// managerTrophyBlocks renders the Best/Worst Manager trophy text blocks
+// (see managerWinners for the winner-selection logic).
+func (c *LeagueContext) managerTrophyBlocks(matchups []sleeper.Matchup) []string {
+	bestID, bestPct, haveBest, worstID, worstPct, worstBenchLeft, haveWorst := c.managerWinners(matchups)
 
 	var blocks []string
 	if haveBest {
@@ -254,6 +275,68 @@ func (c *LeagueContext) managerTrophyBlocks(matchups []sleeper.Matchup) []string
 				c.TeamName(worstID), worstBenchLeft, worstPct)))
 	}
 	return blocks
+}
+
+// trophyWinner pairs a trophy category's emoji (matching Trophies' output)
+// with the roster ID that won it for one week.
+type trophyWinner struct {
+	emoji    string
+	rosterID int
+}
+
+// weekTrophyWinners computes the winning roster ID for each of the week's
+// trophy categories, mirroring Trophies' own winner-selection exactly but
+// without building any display text. A category is omitted if it has no
+// winner that week (e.g. no projections, or a bye leaving no decided
+// games). Used to tally season totals - see TrophyCase.
+func (c *LeagueContext) weekTrophyWinners(matchups []sleeper.Matchup, projections []sleeper.PlayerProjection) []trophyWinner {
+	games := pairGames(matchups)
+	if len(games) == 0 {
+		return nil
+	}
+	scores := sortedScores(matchups)
+	if len(scores) == 0 {
+		return nil
+	}
+
+	winners := []trophyWinner{
+		{"👑️", scores[0].rosterID},
+		{"💩️", scores[len(scores)-1].rosterID},
+	}
+
+	closest, blowout := blowoutAndClosest(games)
+	if blowout != nil {
+		winners = append(winners, trophyWinner{"😱️", blowout.Winner()})
+	}
+	if closest != nil {
+		winners = append(winners, trophyWinner{"😅️", closest.Winner()})
+	}
+
+	luckyID, _, haveLucky, unluckyID, _, haveUnlucky := luckWinners(games, scores)
+	if haveLucky {
+		winners = append(winners, trophyWinner{"🍀️", luckyID})
+	}
+	if haveUnlucky {
+		winners = append(winners, trophyWinner{"😡️", unluckyID})
+	}
+
+	overID, _, haveOver, underID, _, haveUnder := c.achieverWinners(matchups, projections)
+	if haveOver {
+		winners = append(winners, trophyWinner{"📈️", overID})
+	}
+	if haveUnder {
+		winners = append(winners, trophyWinner{"📉️", underID})
+	}
+
+	bestID, _, haveBest, worstID, _, _, haveWorst := c.managerWinners(matchups)
+	if haveBest {
+		winners = append(winners, trophyWinner{"🤖️", bestID})
+	}
+	if haveWorst {
+		winners = append(winners, trophyWinner{"🤡️", worstID})
+	}
+
+	return winners
 }
 
 // flexEligible returns the player positions that may fill a roster slot.

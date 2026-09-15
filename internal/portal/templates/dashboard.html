@@ -1,0 +1,81 @@
+{{define "dashboard"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>fantasy_bot portal</title>
+  {{template "styles" .}}
+</head>
+<body>
+  <div class="wrap">
+    <h1>fantasy_bot</h1>
+    <p class="subtitle">Settings saved here take priority over .env. An "override" badge marks anything no longer using its .env-derived default.</p>
+
+    {{if .Error}}<div class="banner error">{{.Error}}</div>{{end}}
+    {{if .Saved}}<div class="banner success">Saved.</div>{{end}}
+
+    <form method="post" action="/settings">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+      <div class="card">
+        <h2>Scheduled messages</h2>
+        {{range .Jobs}}
+        <div class="job-row">
+          <input type="checkbox" id="job_{{.Name}}" name="job_{{.Name}}" {{if .Checked}}checked{{end}}>
+          <div>
+            <label class="job-label" for="job_{{.Name}}">{{.Label}}{{if .IsOverride}}<span class="override-badge">override</span>{{end}}</label>
+            <div class="job-desc">{{.Description}}</div>
+          </div>
+        </div>
+        {{end}}
+      </div>
+
+      <div class="card">
+        <h2>Waiver report days{{if .WaiverDaysIsOverride}}<span class="override-badge">override</span>{{end}}</h2>
+        <div class="days-grid">
+          {{range .WaiverDays}}
+          <label class="day-pill">
+            <input type="checkbox" name="waiver_day_{{.Value}}" {{if .Checked}}checked{{end}}>
+            {{.Label}}
+          </label>
+          {{end}}
+        </div>
+        <div class="hint">Unchecked = never posts. Only affects the Waiver Report message above.</div>
+      </div>
+
+      <div class="card">
+        <h2>Timezone{{if .TimezoneIsOverride}}<span class="override-badge">override</span>{{end}}</h2>
+        <div class="field">
+          <label class="field-label" for="timezone">IANA timezone</label>
+          <input type="text" id="timezone" name="timezone" list="tz-options" value="{{.Timezone}}">
+          <datalist id="tz-options">
+            {{range .CommonTimezones}}<option value="{{.}}">{{end}}
+          </datalist>
+          <div class="hint">Leave blank to use the .env default ({{.EnvTimezone}}). Doesn't affect messages pinned to actual NFL game times (ET) - see each message's description above.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>AI weekly recap prompt{{if .RecapPromptIsOverride}}<span class="override-badge">override</span>{{end}}</h2>
+        <div class="field">
+          <textarea name="recap_prompt">{{.RecapPrompt}}</textarea>
+          <div class="hint">Only used if LLM_API_KEY is set in .env. Clear this box (or use the reset button below) to go back to the built-in default.</div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="submit" name="action" value="save" class="primary">Save changes</button>
+        <button type="submit" name="action" value="reset_prompt">Reset recap prompt only</button>
+        <button type="submit" name="action" value="reset_all" onclick="return confirm('Reset ALL settings to .env defaults?');">Reset everything to .env defaults</button>
+      </div>
+    </form>
+
+    <form method="post" action="/logout" style="margin-top:24px;">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+      <button type="submit">Log out</button>
+    </form>
+  </div>
+</body>
+</html>
+{{end}}

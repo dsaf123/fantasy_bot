@@ -42,6 +42,16 @@ type Config struct {
 	// when the recap isn't configured, in which case the bot skips it
 	// entirely (see bot.Bot.Run and scheduler.Run).
 	LLM LLMConfig
+
+	// PortalPassword, if set, enables the web config portal (see
+	// internal/portal) on PortalPort - the same on/off-by-presence pattern
+	// as LLM.APIKey. Leave unset to disable the portal entirely.
+	PortalPassword string
+	// PortalPort is the port the web config portal listens on.
+	PortalPort string
+	// SettingsFile is where the web portal persists its overrides (see
+	// internal/settings) across restarts.
+	SettingsFile string
 }
 
 // LLMConfig configures the AI provider used to write the weekly recap
@@ -62,6 +72,9 @@ func Load() (*Config, error) {
 		DailyWaiver:          getEnvBool("DAILY_WAIVER", false),
 		MonitorReport:        getEnvBool("MONITOR_REPORT", true),
 		InitMessage:          os.Getenv("INIT_MSG"),
+		PortalPassword:       os.Getenv("PORTAL_PASSWORD"),
+		PortalPort:           getEnv("PORTAL_PORT", "8080"),
+		SettingsFile:         getEnv("SETTINGS_FILE", "data/settings.json"),
 	}
 
 	cfg.LeagueID = os.Getenv("LEAGUE_ID")

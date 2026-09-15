@@ -13,4 +13,6 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata
 COPY --from=build /out/fantasy_bot /usr/local/bin/fantasy_bot
 
+EXPOSE 8080
+
 ENTRYPOINT ["fantasy_bot"]
