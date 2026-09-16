@@ -37,6 +37,7 @@ only fire if the noted setting is enabled.
 | Monday | 7:30 AM | league | Weekday Scoreboard | Current scores plus each matchup's approximate projected final score |
 | Monday | 6:30 PM | ET | Close Scores | Matchups still within the close-game threshold, before Monday Night Football wraps |
 | Tuesday | 7:30 AM | league | Final | Final scores and trophies (blowout, closest game, luck, over/underachiever, best/worst manager) for the week that just finished |
+| Tuesday | 7:31 AM | league | Bad Management | Bar chart of points scored vs. points left on the bench for the week that just finished, ranked worst manager first |
 | Tuesday | 9:00 AM | league | Trophy Case | Season-long crosstab image of every team's trophy counts, tallied through the week Final just posted |
 | Tuesday | 6:30 PM | league | Power Rankings | Season-long power ranking score and rank for each team |
 | Tuesday | 6:30 PM | league | Power Rankings Chart | Season-trend line chart image (skipped until at least two weeks have been scored) |

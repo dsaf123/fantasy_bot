@@ -65,6 +65,9 @@ func buildJobs(cfg *config.Config, s settings.Settings) []jobSpec {
 	add("fortune_index", tz(tzLocal, "31 18 * * 2"), bot.ReportFortuneIndex)
 	// Tuesday 7:30am local: final scores + trophies for the week just finished.
 	add("final", tz(tzLocal, "30 7 * * 2"), bot.ReportFinal)
+	// Tuesday 7:31am local: bar chart of points scored vs. points left on
+	// the bench for the week Final just posted, ranked worst manager first.
+	add("bad_management", tz(tzLocal, "31 7 * * 2"), bot.ReportBadManagement)
 	// Tuesday 9:00am local: season-long trophy case, tallied through the
 	// week Final just posted.
 	add("trophy_case", tz(tzLocal, "0 9 * * 2"), bot.ReportTrophyCase)

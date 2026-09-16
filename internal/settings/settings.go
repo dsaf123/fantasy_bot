@@ -73,6 +73,7 @@ var Jobs = []JobInfo{
 	{"scoreboard", "Scoreboard", "Sunday 4 PM & 8 PM ET — in-progress scores for every matchup."},
 	{"close_scores", "Close Scores", "Sunday 4 PM & 8 PM ET, and Monday 6:30 PM ET — matchups still within the close-game threshold."},
 	{"final", "Final", "Tuesday 7:30 AM league time — final scores and trophies for the week that just finished."},
+	{"bad_management", "Bad Management", "Tuesday 7:31 AM league time — bar chart of points scored vs. points left on the bench for the week that just finished, ranked worst manager first."},
 	{"trophy_case", "Trophy Case", "Tuesday 9:00 AM league time — season-long crosstab image of every team's trophy counts, tallied through the week Final just posted."},
 	{"power_rankings", "Power Rankings", "Tuesday 6:30 PM league time — season-long power ranking score and rank for each team, plus a season-trend chart image."},
 	{"fortune_index", "Fortune Index", "Tuesday 6:31 PM league time — schedule-luck ranking: who's over/underperformed based on opponent strength."},

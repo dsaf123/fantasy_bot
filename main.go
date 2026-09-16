@@ -20,7 +20,7 @@ import (
 
 func main() {
 	report := flag.String("report", "", "run a single report and exit instead of starting the scheduler "+
-		"(one of: init, scoreboard, projected_scoreboard, gameday, matchups, standings, win_matrix, power_rankings, fortune_index, trophies, trophy_case, close_scores, waiver, monitor, final, recap)")
+		"(one of: init, scoreboard, projected_scoreboard, gameday, matchups, standings, win_matrix, power_rankings, fortune_index, trophies, trophy_case, bad_management, close_scores, waiver, monitor, final, recap)")
 	dryRun := flag.Bool("dry-run", false, "print report output to stdout instead of posting to Discord")
 	flag.Parse()
 

@@ -55,10 +55,15 @@ const (
 	// ReportTrophyCase posts a season-long crosstab image of every team's
 	// trophy counts (see report.LeagueContext.TrophyCaseImage), tallied
 	// through the most recently completed week.
-	ReportTrophyCase  ReportType = "trophy_case"
-	ReportCloseScores ReportType = "close_scores"
-	ReportWaiver      ReportType = "waiver"
-	ReportMonitor     ReportType = "monitor"
+	ReportTrophyCase ReportType = "trophy_case"
+	// ReportBadManagement posts a bar-chart image of every team's points
+	// scored vs. points left on the bench (see
+	// report.LeagueContext.BadManagementChart) for the week that just
+	// finished, ranked worst manager first.
+	ReportBadManagement ReportType = "bad_management"
+	ReportCloseScores   ReportType = "close_scores"
+	ReportWaiver        ReportType = "waiver"
+	ReportMonitor       ReportType = "monitor"
 	// ReportFinal posts the previous week's final scores plus trophies,
 	// mirroring gamedaybot's Tuesday-morning "get_final" job.
 	ReportFinal ReportType = "final"
@@ -277,6 +282,25 @@ func (b *Bot) Run(ctx context.Context, rt ReportType) error {
 		}
 		caption := fmt.Sprintf("Trophy Case — season totals through Week %d\n%s", finalWeek, report.TrophyCaseLegend())
 		return b.sender.SendImage(ctx, caption, "trophy_case.png", imgPNG)
+
+	case ReportBadManagement:
+		finalWeek := week - 1
+		if finalWeek < 1 {
+			return nil // nothing to chart before week 1 is complete
+		}
+		matchups, err := b.matchups(ctx, finalWeek)
+		if err != nil {
+			return err
+		}
+		leagueCtx.Week = finalWeek
+		chartPNG, err := leagueCtx.BadManagementChart(matchups)
+		if err != nil {
+			return err
+		}
+		if chartPNG == nil {
+			return nil
+		}
+		return b.sender.SendImage(ctx, fmt.Sprintf("🤡 Bad Management 🤡 — Week %d", finalWeek), "bad_management.png", chartPNG)
 
 	case ReportCloseScores:
 		matchups, err := b.matchups(ctx, week)

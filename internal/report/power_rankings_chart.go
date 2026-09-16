@@ -13,18 +13,38 @@ import (
 
 // seriesPalette cycles a small set of visually distinct line colors so each
 // team keeps a consistent, legible color without pulling in a full
-// color-scale dependency.
+// color-scale dependency. Colors are Discord's own UI palette (blurple, its
+// status/role colors, plus a few extras) so the chart reads as native to
+// Discord's dark theme instead of a generic charting library; none of them
+// are dark enough to disappear against powerRankingsPalette's background.
 var seriesPalette = []drawing.Color{
-	chart.ColorBlue,
-	chart.ColorRed,
-	chart.ColorGreen,
-	chart.ColorOrange,
-	{R: 148, G: 0, B: 211, A: 255}, // purple
-	chart.ColorCyan,
-	{R: 255, G: 105, B: 180, A: 255}, // pink
-	chart.ColorYellow,
-	{R: 139, G: 69, B: 19, A: 255}, // brown
-	chart.ColorBlack,
+	{R: 0x58, G: 0x65, B: 0xf2, A: 255}, // blurple
+	{R: 0xed, G: 0x42, B: 0x45, A: 255}, // red
+	{R: 0x57, G: 0xf2, B: 0x87, A: 255}, // green
+	{R: 0xfe, G: 0xe7, B: 0x5c, A: 255}, // yellow
+	{R: 0xeb, G: 0x45, B: 0x9e, A: 255}, // fuchsia
+	{R: 0x4f, G: 0xd6, B: 0xe8, A: 255}, // cyan
+	{R: 0xf5, G: 0xa6, B: 0x23, A: 255}, // orange
+	{R: 0x9b, G: 0x84, B: 0xec, A: 255}, // periwinkle
+	{R: 0xff, G: 0x8f, B: 0xb3, A: 255}, // pink
+	{R: 0xb9, G: 0xbb, B: 0xbe, A: 255}, // greyple
+}
+
+// powerRankingsPalette themes the chart's background, canvas, axes, and text
+// to match tcBackground/tcSubColor/bmGridColor (see trophy_case.go and
+// bad_management.go) so this line chart reads as the same visual family as
+// the other dark-themed report images instead of go-chart's default
+// light theme.
+type powerRankingsPalette struct{}
+
+func (powerRankingsPalette) BackgroundColor() drawing.Color       { return drawing.Color(tcBackground) }
+func (powerRankingsPalette) BackgroundStrokeColor() drawing.Color { return drawing.Color(tcBackground) }
+func (powerRankingsPalette) CanvasColor() drawing.Color           { return drawing.Color(tcBackground) }
+func (powerRankingsPalette) CanvasStrokeColor() drawing.Color     { return drawing.Color(tcBackground) }
+func (powerRankingsPalette) AxisStrokeColor() drawing.Color       { return drawing.Color(bmGridColor) }
+func (powerRankingsPalette) TextColor() drawing.Color             { return drawing.Color(tcSubColor) }
+func (powerRankingsPalette) GetSeriesColor(index int) drawing.Color {
+	return seriesPalette[index%len(seriesPalette)]
 }
 
 // PowerRankingsChart renders a season-long line chart of every team's
@@ -55,16 +75,38 @@ func (c *LeagueContext) PowerRankingsChart(history map[int][]sleeper.Matchup) ([
 	series := make([]chart.Series, 0, len(rosterIDs)*2)
 	for i, id := range rosterIDs {
 		abbrev := c.TeamAbbrev(id)
+		seriesColor := seriesPalette[i%len(seriesPalette)]
 		line := chart.ContinuousSeries{
 			Name:    abbrev,
 			XValues: weeks,
 			YValues: scoresByRoster[id],
 			Style: chart.Style{
-				StrokeColor: seriesPalette[i%len(seriesPalette)],
+				StrokeColor: seriesColor,
 				StrokeWidth: 2,
 			},
 		}
-		series = append(series, line, chart.LastValueAnnotationSeries(line, func(interface{}) string { return abbrev }))
+
+		// Built by hand rather than via chart.LastValueAnnotationSeries: that
+		// helper forwards only the line's StrokeColor/StrokeWidth, so its
+		// label pill would fall back to go-chart's hardcoded black-on-white
+		// (see AnnotationSeries.annotationStyleDefaults) instead of this
+		// chart's dark theme. FillColor is set only here, not on the line's
+		// own Style, since a line's FillColor tells go-chart to shade the
+		// area under it.
+		lastWeek := weeks[len(weeks)-1]
+		lastScore := scoresByRoster[id][len(scoresByRoster[id])-1]
+		label := chart.AnnotationSeries{
+			Name: abbrev + " label",
+			Style: chart.Style{
+				FontColor:   drawing.Color(tcNameText),
+				FillColor:   drawing.Color(tcHeaderBG),
+				StrokeColor: seriesColor,
+				StrokeWidth: 1.5,
+				FontSize:    11,
+			},
+			Annotations: []chart.Value2{{XValue: lastWeek, YValue: lastScore, Label: abbrev}},
+		}
+		series = append(series, line, label)
 	}
 
 	weekTicks := make([]chart.Tick, len(weeks))
@@ -74,6 +116,10 @@ func (c *LeagueContext) PowerRankingsChart(history map[int][]sleeper.Matchup) ([
 
 	graph := chart.Chart{
 		Title: "Power Rankings — Season Trend",
+		TitleStyle: chart.Style{
+			FontColor: drawing.Color(bmTitleColor),
+		},
+		ColorPalette: powerRankingsPalette{},
 		Background: chart.Style{
 			Padding: chart.Box{Top: 30, Left: 50, Right: 80, Bottom: 20},
 		},
@@ -83,6 +129,10 @@ func (c *LeagueContext) PowerRankingsChart(history map[int][]sleeper.Matchup) ([
 		},
 		YAxis: chart.YAxis{
 			Name: "Power Ranking Score (0-100)",
+			GridMajorStyle: chart.Style{
+				StrokeColor: drawing.Color(bmGridColor),
+				StrokeWidth: 1,
+			},
 		},
 		YAxisSecondary: chart.YAxis{
 			Style: chart.Style{Hidden: true},
