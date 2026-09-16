@@ -29,9 +29,9 @@ type Config struct {
 	// MonitorReport enables the Sunday-morning injury/monitor report.
 	MonitorReport bool
 
-	// TeamAbbreviations overrides the auto-derived 4-letter team codes used
-	// in scoreboard-style reports, keyed by Sleeper roster ID. Teams not
-	// listed here fall back to a code derived from their team/display name.
+	// TeamAbbreviations overrides the auto-derived short team codes used in
+	// scoreboard-style reports, keyed by Sleeper roster ID. Teams not listed
+	// here fall back to a code derived from their team/display name.
 	TeamAbbreviations map[int]string
 
 	// InitMessage, if set, is posted once on startup to confirm the bot is
@@ -52,6 +52,18 @@ type Config struct {
 	// SettingsFile is where the web portal persists its overrides (see
 	// internal/settings) across restarts.
 	SettingsFile string
+
+	// DiscordBotToken, if set, enables the /settings slash command (see
+	// internal/discordbot) as a chat-native alternative to the web portal -
+	// the same on/off-by-presence pattern as PortalPassword. Leave unset to
+	// disable it entirely.
+	DiscordBotToken string
+	// DiscordGuildID, if set, registers slash commands to this one guild
+	// only, which Discord applies within seconds instead of the up-to-an-
+	// hour propagation delay for global commands - handy while setting the
+	// bot up. The bot still only serves one league/settings file regardless
+	// of how many guilds it's actually in.
+	DiscordGuildID string
 }
 
 // LLMConfig configures the AI provider used to write the weekly recap
@@ -75,6 +87,8 @@ func Load() (*Config, error) {
 		PortalPassword:       os.Getenv("PORTAL_PASSWORD"),
 		PortalPort:           getEnv("PORTAL_PORT", "8080"),
 		SettingsFile:         getEnv("SETTINGS_FILE", "data/settings.json"),
+		DiscordBotToken:      os.Getenv("DISCORD_BOT_TOKEN"),
+		DiscordGuildID:       os.Getenv("DISCORD_GUILD_ID"),
 	}
 
 	cfg.LeagueID = os.Getenv("LEAGUE_ID")

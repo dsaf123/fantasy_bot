@@ -75,8 +75,8 @@ func (c *LeagueContext) TeamName(rosterID int) string {
 	return fmt.Sprintf("Team %d", rosterID)
 }
 
-// TeamAbbrev returns a short (typically 4-letter) code for a roster, for use
-// in compact scoreboard-style reports. It prefers a manual override (see
+// TeamAbbrev returns a short (2-4 character) code for a roster, for use in
+// compact scoreboard-style reports. It prefers a manual override (see
 // SetAbbreviations) and otherwise derives one from the team's name.
 func (c *LeagueContext) TeamAbbrev(rosterID int) string {
 	if a, ok := c.abbrevByID[rosterID]; ok {
@@ -85,16 +85,44 @@ func (c *LeagueContext) TeamAbbrev(rosterID int) string {
 	return deriveAbbrev(c.TeamName(rosterID))
 }
 
-// deriveAbbrev builds a 4-letter uppercase code from the first letters/digits
-// of name, e.g. "The Wolfpack" -> "THEW". Falls back to "TEAM" if name has no
-// alphanumeric characters at all.
+// deriveAbbrev builds a short uppercase code from name. Names split into two
+// or more words by whitespace or dashes take one letter/digit per word,
+// capped at 4 words so the result still lines up in the scoreboard's
+// fixed-width columns (see formatGameLine), e.g. "Andrew's Ass-Kickers" ->
+// "AAK", "Kyle's Football Club" -> "KFC". A name with no such split (e.g.
+// "andrewtheman123") instead falls back to its first 4 letters/digits, e.g.
+// "ANDR". Falls back to "TEAM" if name has no alphanumeric characters at all.
 func deriveAbbrev(name string) string {
+	words := strings.FieldsFunc(name, func(r rune) bool {
+		return unicode.IsSpace(r) || r == '-'
+	})
+
+	var initials strings.Builder
+	wordsUsed := 0
+	for _, w := range words {
+		for _, r := range w {
+			if unicode.IsLetter(r) || unicode.IsDigit(r) {
+				initials.WriteRune(unicode.ToUpper(r))
+				wordsUsed++
+				break
+			}
+		}
+		if wordsUsed >= 4 {
+			break
+		}
+	}
+	if wordsUsed >= 2 {
+		return initials.String()
+	}
+
 	var b strings.Builder
+	letters := 0
 	for _, r := range name {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
 			b.WriteRune(unicode.ToUpper(r))
+			letters++
 		}
-		if b.Len() >= 4 {
+		if letters >= 4 {
 			break
 		}
 	}

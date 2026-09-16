@@ -60,7 +60,8 @@ Copy [.env.example](.env.example) to `.env` and fill in at least:
 - `DISCORD_WEBHOOK_URL` — an incoming webhook URL for the channel to post to
 
 See `.env.example` for the full list of optional settings (timezone, close
-game threshold, team abbreviations, AI weekly recap provider, web portal).
+game threshold, team abbreviations, AI weekly recap provider, web portal,
+Discord slash commands).
 
 ## Web Portal
 
@@ -96,6 +97,46 @@ or every redeploy will silently reset the portal's overrides back to
 The portal itself speaks plain HTTP, with no built-in TLS — if you expose
 it beyond your home network, put it behind a reverse proxy (e.g. Caddy,
 Nginx Proxy Manager, a Cloudflare Tunnel) that terminates HTTPS.
+
+## Discord Commands
+
+Set `DISCORD_BOT_TOKEN` to manage the same overrides as the [web
+portal](#web-portal) — which scheduled messages are on, the Waiver Report's
+day(s), the timezone, and the AI Weekly Recap's prompt — with a `/settings`
+slash command instead, right from Discord. Anyone with the server's "Manage
+Server" permission can run it; access isn't controlled by a separate
+password like the portal's, but by that Discord permission (server admins
+can further customize who's allowed from Discord's own Integrations
+settings). The command only works in a server, not in DMs.
+
+Unlike the portal, this doesn't need the bot to be reachable from the
+internet — it connects out to Discord the same way the bot already reads
+Sleeper's API, so it works just as well fully behind a home network.
+
+| Command | What it does |
+| --- | --- |
+| `/settings view` | Show every current setting and whether it's an override or a `.env` default |
+| `/settings job` | Turn one scheduled message on or off — `name` is a dropdown of every message in the [schedule table](#scheduled-messages) above, `enabled` a true/false toggle |
+| `/settings waiver-days days:<list>` | Set which day(s) the Waiver Report posts — free text, e.g. `wed`, `sun,wed,fri`, `all`, or `none` |
+| `/settings timezone value:<zone>` | Set the timezone used for "league time" messages — free text, e.g. `America/Chicago` |
+| `/settings recap-prompt` | Set the AI Weekly Recap's system prompt via the free-text `prompt` option (omit it to just view the current one); capped at 1900 characters — use the web portal for anything longer |
+| `/settings reset` | Reset overrides back to `.env` defaults — `scope` is a dropdown for either everything or just the recap prompt |
+
+To turn this on:
+
+1. Create a bot user at the [Discord Developer Portal](https://discord.com/developers/applications)
+   (**New Application**, then **Bot** → **Reset Token** to get its token).
+2. Under **OAuth2 → URL Generator**, check the **bot** and
+   **applications.commands** scopes (no individual bot permissions need to
+   be checked — access is controlled by "Manage Server" instead), then open
+   the generated URL to invite it to your server.
+3. Set `DISCORD_BOT_TOKEN` to the token from step 1. `DISCORD_GUILD_ID`
+   (your server's ID) is optional — without it, new/changed commands can
+   take up to an hour to appear (Discord's global-command propagation
+   delay); with it, they show up within seconds.
+4. Restart the bot. It logs `discordbot: connected as ..., /settings
+   registered ...` once it's up, or `discordbot: DISCORD_BOT_TOKEN not set,
+   slash commands disabled` if the token is missing.
 
 ## Running locally
 

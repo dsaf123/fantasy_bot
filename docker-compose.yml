@@ -22,6 +22,8 @@ services:
       PORTAL_PASSWORD: ${PORTAL_PASSWORD}
       PORTAL_PORT: ${PORTAL_PORT:-8080}
       SETTINGS_FILE: /data/settings.json
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+      DISCORD_GUILD_ID: ${DISCORD_GUILD_ID}
 
 volumes:
   fantasy_bot_data:

@@ -196,6 +196,27 @@ func TestTeamAbbrevDerivesFromName(t *testing.T) {
 	}
 }
 
+func TestTeamAbbrevWordInitials(t *testing.T) {
+	cases := []struct {
+		name string
+		want string
+	}{
+		{"Andrew's Ass-Kickers", "AAK"},
+		{"Kyle's Football Club", "KFC"},
+		{"The Wolfpack", "TW"},
+		{"andrewtheman123", "ANDR"},
+		{"The Greatest Team Of All Time", "TGTO"}, // capped at 4 words
+	}
+	for _, tc := range cases {
+		users := []sleeper.User{{UserID: "u1", DisplayName: tc.name}}
+		rosters := []sleeper.Roster{{RosterID: 1, OwnerID: "u1"}}
+		ctx := NewLeagueContext(sleeper.League{}, rosters, users, nil, 1)
+		if got := ctx.TeamAbbrev(1); got != tc.want {
+			t.Errorf("TeamAbbrev() for %q = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestTeamAbbrevOverride(t *testing.T) {
 	ctx := testContext()
 	ctx.SetAbbreviations(map[int]string{1: "DYNK"})

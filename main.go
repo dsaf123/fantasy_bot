@@ -13,6 +13,7 @@ import (
 
 	"fantasy_bot/internal/bot"
 	"fantasy_bot/internal/config"
+	"fantasy_bot/internal/discordbot"
 	"fantasy_bot/internal/portal"
 	"fantasy_bot/internal/scheduler"
 	"fantasy_bot/internal/settings"
@@ -65,6 +66,19 @@ func main() {
 		}()
 	} else {
 		log.Printf("portal: PORTAL_PASSWORD not set, portal disabled")
+	}
+
+	// The Discord slash-command config UI is likewise supplementary: a
+	// failure to connect (bad token, network issue) is logged rather than
+	// fatal.
+	if cfg.DiscordBotToken != "" {
+		go func() {
+			if err := discordbot.Serve(ctx, cfg, mgr); err != nil {
+				log.Printf("discordbot: %v", err)
+			}
+		}()
+	} else {
+		log.Printf("discordbot: DISCORD_BOT_TOKEN not set, slash commands disabled")
 	}
 
 	if err := scheduler.Run(ctx, cfg, mgr, b); err != nil {
