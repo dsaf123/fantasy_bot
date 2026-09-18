@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
+	"fantasy_bot/internal/config"
 	"fantasy_bot/internal/settings"
 )
 
@@ -126,7 +128,7 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request, sess
 		next = s.mgr.Get()
 		next.RecapPrompt = nil
 	case "save":
-		next = settingsFromForm(r)
+		next = settingsFromForm(r, s.cfg)
 	default:
 		http.Error(w, "unknown action", http.StatusBadRequest)
 		return
@@ -139,14 +141,18 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request, sess
 	http.Redirect(w, r, "/?saved=1", http.StatusSeeOther)
 }
 
-// settingsFromForm builds a full Settings snapshot from the dashboard
-// form's POST body. The form always renders every job/day checkbox and
-// pre-fills the timezone/prompt fields with their effective values, so a
-// save is always a complete replacement, never a partial patch.
-func settingsFromForm(r *http.Request) settings.Settings {
+// settingsFromForm builds a Settings snapshot from the dashboard form's
+// POST body. The form always renders every job/day checkbox and pre-fills
+// the timezone/prompt fields with their effective (possibly default)
+// values, so every save resubmits all of them together - but a field only
+// becomes a stored override when its submitted value actually differs from
+// its cfg-derived default. Otherwise every save would mark all fields as
+// overridden (and show every "override" badge) even when the user only
+// meant to change one.
+func settingsFromForm(r *http.Request, cfg *config.Config) settings.Settings {
 	var next settings.Settings
 
-	if tzInput := strings.TrimSpace(r.FormValue("timezone")); tzInput != "" {
+	if tzInput := strings.TrimSpace(r.FormValue("timezone")); tzInput != "" && tzInput != cfg.Timezone {
 		next.Timezone = &tzInput
 	}
 
@@ -159,15 +165,22 @@ func settingsFromForm(r *http.Request) settings.Settings {
 			days = append(days, d)
 		}
 	}
-	next.WaiverDays = &days
+	if !slices.Equal(days, settings.DefaultWaiverDays(cfg)) {
+		next.WaiverDays = &days
+	}
 
 	jobEnabled := make(map[string]bool, len(settings.Jobs))
 	for _, j := range settings.Jobs {
-		jobEnabled[j.Name] = r.FormValue("job_"+j.Name) != ""
+		checked := r.FormValue("job_"+j.Name) != ""
+		if checked != settings.DefaultJobEnabled(j.Name, cfg) {
+			jobEnabled[j.Name] = checked
+		}
 	}
-	next.JobEnabled = jobEnabled
+	if len(jobEnabled) > 0 {
+		next.JobEnabled = jobEnabled
+	}
 
-	if prompt := strings.TrimSpace(r.FormValue("recap_prompt")); prompt != "" {
+	if prompt := strings.TrimSpace(r.FormValue("recap_prompt")); prompt != "" && prompt != settings.DefaultRecapPrompt {
 		next.RecapPrompt = &prompt
 	}
 

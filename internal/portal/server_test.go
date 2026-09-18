@@ -133,7 +133,7 @@ func csrfToken(t *testing.T, srv *httptest.Server, client *http.Client) string {
 }
 
 func TestSaveSettingsPersistsAndReflectsInManager(t *testing.T) {
-	srv, client, mgr, _ := newTestServer(t)
+	srv, client, mgr, cfg := newTestServer(t)
 	token := csrfToken(t, srv, client)
 
 	form := url.Values{
@@ -162,7 +162,10 @@ func TestSaveSettingsPersistsAndReflectsInManager(t *testing.T) {
 	if got.EffectiveRecapPrompt("") != "Be brief." {
 		t.Errorf("RecapPrompt = %v, want %q", got.RecapPrompt, "Be brief.")
 	}
-	if !got.JobIsEnabled("standings", false) {
+	// "standings" was submitted checked, which matches its .env-derived
+	// default (settings.DefaultJobEnabled's default case) - so it resolves
+	// to enabled via that default, not via a stored override.
+	if !got.JobIsEnabled("standings", settings.DefaultJobEnabled("standings", cfg)) {
 		t.Error("standings should be enabled")
 	}
 	if got.JobIsEnabled("monitor", true) {
@@ -171,6 +174,68 @@ func TestSaveSettingsPersistsAndReflectsInManager(t *testing.T) {
 	days := got.EffectiveWaiverDays(nil)
 	if len(days) != 2 || days[0] != 1 || days[1] != 3 {
 		t.Errorf("WaiverDays = %v, want [1 3]", days)
+	}
+}
+
+// TestSaveSettingsOnlyStoresFieldsThatDifferFromDefault guards against the
+// dashboard form (which always resubmits every field, pre-filled with its
+// current effective value) turning every field into a stored override just
+// because the user changed one of them. Only the recap prompt here actually
+// differs from its .env-derived default, so it should be the only override
+// stored - and the only "override" badge the re-rendered dashboard shows.
+func TestSaveSettingsOnlyStoresFieldsThatDifferFromDefault(t *testing.T) {
+	srv, client, mgr, cfg := newTestServer(t)
+	token := csrfToken(t, srv, client)
+
+	form := url.Values{
+		"csrf_token":   {token},
+		"action":       {"save"},
+		"timezone":     {cfg.Timezone}, // matches the .env default exactly
+		"waiver_day_3": {"on"},         // DefaultWaiverDays with DailyWaiver=false is {3}
+		"recap_prompt": {"Be brief."},  // the only field that differs
+	}
+	for _, j := range settings.Jobs {
+		if settings.DefaultJobEnabled(j.Name, cfg) {
+			form.Set("job_"+j.Name, "on")
+		}
+	}
+
+	resp, err := client.PostForm(srv.URL+"/settings", form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("save status = %d, want 303", resp.StatusCode)
+	}
+
+	got := mgr.Get()
+	if got.Timezone != nil {
+		t.Errorf("Timezone = %q, want nil (matched .env default, should not be an override)", *got.Timezone)
+	}
+	if got.WaiverDays != nil {
+		t.Errorf("WaiverDays = %v, want nil (matched .env default, should not be an override)", *got.WaiverDays)
+	}
+	if len(got.JobEnabled) != 0 {
+		t.Errorf("JobEnabled = %v, want empty (every job matched its .env default)", got.JobEnabled)
+	}
+	if got.RecapPrompt == nil || *got.RecapPrompt != "Be brief." {
+		t.Errorf("RecapPrompt = %v, want \"Be brief.\"", got.RecapPrompt)
+	}
+
+	dash, err := client.Get(srv.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dash.Body.Close()
+	body, _ := io.ReadAll(dash.Body)
+
+	const badgeHTML = `<span class="override-badge">override</span>`
+	if n := strings.Count(string(body), badgeHTML); n != 1 {
+		t.Errorf("dashboard has %d rendered override badges, want exactly 1 (recap prompt only)", n)
+	}
+	if i := strings.Index(string(body), "AI weekly recap prompt"); i == -1 || !strings.Contains(string(body)[i:], badgeHTML) {
+		t.Error("expected the override badge on the recap prompt heading")
 	}
 }
 
