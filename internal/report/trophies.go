@@ -192,9 +192,8 @@ func (c *LeagueContext) achieverWinners(matchups []sleeper.Matchup, projections 
 		return 0, 0, false, 0, 0, false
 	}
 	projByPlayer := make(map[string]float64, len(projections))
-	scoringType := c.ScoringType()
 	for _, p := range projections {
-		projByPlayer[p.PlayerID] = p.Points(scoringType)
+		projByPlayer[p.PlayerID] = p.PointsForSettings(c.League.ScoringSettings)
 	}
 
 	for _, m := range matchups {

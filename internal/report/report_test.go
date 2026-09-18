@@ -117,7 +117,10 @@ func TestTrophiesAchieversAndManagers(t *testing.T) {
 		"rb3": {FullName: "RB Three", Position: "RB"},
 		"wr2": {FullName: "WR Two", Position: "WR"},
 	}
-	league := sleeper.League{RosterPositions: []string{"QB", "RB", "WR", "BN"}}
+	league := sleeper.League{
+		RosterPositions: []string{"QB", "RB", "WR", "BN"},
+		ScoringSettings: map[string]float64{"rec_yd": 1}, // 1 pt/yd, so stats below equal the intended projections
+	}
 	ctx := NewLeagueContext(league, rosters, users, players, 1)
 
 	matchups := []sleeper.Matchup{
@@ -140,12 +143,12 @@ func TestTrophiesAchieversAndManagers(t *testing.T) {
 		},
 	}
 	projections := []sleeper.PlayerProjection{
-		{PlayerID: "qb1", Stats: map[string]float64{"pts_std": 8}},
-		{PlayerID: "rb1", Stats: map[string]float64{"pts_std": 6}},
-		{PlayerID: "wr1", Stats: map[string]float64{"pts_std": 6}}, // Alice projected 20, scored 23: +3
-		{PlayerID: "qb2", Stats: map[string]float64{"pts_std": 25}},
-		{PlayerID: "rb3", Stats: map[string]float64{"pts_std": 15}},
-		{PlayerID: "wr2", Stats: map[string]float64{"pts_std": 10}}, // Bob projected 50, scored 45: -5
+		{PlayerID: "qb1", Stats: map[string]float64{"rec_yd": 8}},
+		{PlayerID: "rb1", Stats: map[string]float64{"rec_yd": 6}},
+		{PlayerID: "wr1", Stats: map[string]float64{"rec_yd": 6}}, // Alice projected 20, scored 23: +3
+		{PlayerID: "qb2", Stats: map[string]float64{"rec_yd": 25}},
+		{PlayerID: "rb3", Stats: map[string]float64{"rec_yd": 15}},
+		{PlayerID: "wr2", Stats: map[string]float64{"rec_yd": 10}}, // Bob projected 50, scored 45: -5
 	}
 
 	out := ctx.Trophies(matchups, projections)
@@ -232,6 +235,7 @@ func TestTeamAbbrevOverride(t *testing.T) {
 
 func TestProjectedScoreboardUsesActualOverProjectedForScoredStarters(t *testing.T) {
 	ctx := testContext()
+	ctx.League.ScoringSettings = map[string]float64{"rec_yd": 1} // 1 pt/yd, so stats below equal the intended projections
 	ctx.SetAbbreviations(map[int]string{1: "DYNK", 2: "ALMO"})
 
 	matchups := []sleeper.Matchup{
@@ -247,12 +251,13 @@ func TestProjectedScoreboardUsesActualOverProjectedForScoredStarters(t *testing.
 		},
 	}
 	projections := []sleeper.PlayerProjection{
-		{PlayerID: "p1", Stats: map[string]float64{"pts_std": 999}}, // already scored, ignored
-		{PlayerID: "p2", Stats: map[string]float64{"pts_std": 12.5}},
-		{PlayerID: "p3", Stats: map[string]float64{"pts_std": 999}}, // already scored, ignored
+		{PlayerID: "p1", Stats: map[string]float64{"rec_yd": 999}}, // already scored, ignored
+		{PlayerID: "p2", Stats: map[string]float64{"rec_yd": 12.5}},
+		{PlayerID: "p3", Stats: map[string]float64{"rec_yd": 999}}, // already scored, ignored
 	}
 
-	out := ctx.ProjectedScoreboard(matchups, projections)
+	// No schedule info: falls back to the nonzero-actual-else-projected heuristic.
+	out := ctx.ProjectedScoreboard(matchups, projections, nil)
 
 	want := "DYNK  32.50 -   5.00 ALMO\n"
 	if !strings.Contains(out, want) {
@@ -263,8 +268,69 @@ func TestProjectedScoreboardUsesActualOverProjectedForScoredStarters(t *testing.
 	}
 }
 
+func TestProjectedScoreboardTrustsConfirmedFinalZeroOverProjection(t *testing.T) {
+	ctx := testContext()
+	ctx.League.ScoringSettings = map[string]float64{"rec_yd": 1} // 1 pt/yd, so stats below equal the intended projections
+	ctx.Players = map[string]sleeper.Player{
+		"p1": {Team: "KC"},  // game final; a 0 here is a real zero
+		"p2": {Team: "BUF"}, // game not yet final; a 0 here just means "hasn't played"
+	}
+	ctx.SetAbbreviations(map[int]string{1: "DYNK", 2: "ALMO"})
+
+	matchups := []sleeper.Matchup{
+		{
+			RosterID: 1, MatchupID: 1,
+			Starters:       []string{"p1"},
+			StartersPoints: []float64{0},
+		},
+		{
+			RosterID: 2, MatchupID: 1,
+			Starters:       []string{"p2"},
+			StartersPoints: []float64{0},
+		},
+	}
+	projections := []sleeper.PlayerProjection{
+		{PlayerID: "p1", Stats: map[string]float64{"rec_yd": 20}}, // must NOT be used: KC is final
+		{PlayerID: "p2", Stats: map[string]float64{"rec_yd": 8}},
+	}
+	schedule := []sleeper.ScheduledGame{
+		{Week: 1, Home: "KC", Away: "LV", Status: "complete"},
+		{Week: 1, Home: "BUF", Away: "MIA", Status: "pre_game"},
+	}
+
+	out := ctx.ProjectedScoreboard(matchups, projections, schedule)
+
+	want := "DYNK   0.00 -   8.00 ALMO\n"
+	if !strings.Contains(out, want) {
+		t.Errorf("ProjectedScoreboard output missing %q, got:\n%s", want, out)
+	}
+}
+
+func TestCompletedTeamsForWeek(t *testing.T) {
+	schedule := []sleeper.ScheduledGame{
+		{Week: 1, Home: "KC", Away: "LV", Status: "complete"},
+		{Week: 1, Home: "BUF", Away: "MIA", Status: "pre_game"},
+		{Week: 1, Home: "SF", Away: "SEA", Status: "canceled"},
+		{Week: 2, Home: "KC", Away: "DEN", Status: "complete"}, // different week, shouldn't count
+	}
+
+	complete := completedTeamsForWeek(schedule, 1)
+
+	for _, team := range []string{"KC", "LV", "SF", "SEA"} {
+		if !complete[team] {
+			t.Errorf("expected %s to be marked complete for week 1", team)
+		}
+	}
+	for _, team := range []string{"BUF", "MIA", "DEN"} {
+		if complete[team] {
+			t.Errorf("expected %s to not be marked complete for week 1", team)
+		}
+	}
+}
+
 func TestWeekdayScoreboardCombinesCurrentAndProjected(t *testing.T) {
 	ctx := testContext()
+	ctx.League.ScoringSettings = map[string]float64{"rec_yd": 1} // 1 pt/yd, so stats below equal the intended projections
 	ctx.SetAbbreviations(map[int]string{1: "DYNK", 2: "ALMO"})
 
 	matchups := []sleeper.Matchup{
@@ -280,10 +346,10 @@ func TestWeekdayScoreboardCombinesCurrentAndProjected(t *testing.T) {
 		},
 	}
 	projections := []sleeper.PlayerProjection{
-		{PlayerID: "p2", Stats: map[string]float64{"pts_std": 15}},
+		{PlayerID: "p2", Stats: map[string]float64{"rec_yd": 15}},
 	}
 
-	out := ctx.WeekdayScoreboard(matchups, projections)
+	out := ctx.WeekdayScoreboard(matchups, projections, nil)
 
 	if !strings.HasPrefix(out, "Score Update\n") {
 		t.Errorf("expected leading Score Update header, got:\n%s", out)
@@ -293,23 +359,6 @@ func TestWeekdayScoreboardCombinesCurrentAndProjected(t *testing.T) {
 	}
 	if !strings.Contains(out, "Approximate Projected Scores\nDYNK  20.00 -  15.00 ALMO\n") {
 		t.Errorf("expected projected score line, got:\n%s", out)
-	}
-}
-
-func TestScoringTypeFromLeagueSettings(t *testing.T) {
-	cases := []struct {
-		rec  float64
-		want string
-	}{
-		{0, "std"},
-		{0.5, "half_ppr"},
-		{1, "ppr"},
-	}
-	for _, tc := range cases {
-		ctx := NewLeagueContext(sleeper.League{ScoringSettings: map[string]float64{"rec": tc.rec}}, nil, nil, nil, 1)
-		if got := ctx.ScoringType(); got != tc.want {
-			t.Errorf("ScoringType() with rec=%v = %q, want %q", tc.rec, got, tc.want)
-		}
 	}
 }
 

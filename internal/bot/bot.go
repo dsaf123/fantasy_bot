@@ -166,7 +166,11 @@ func (b *Bot) Run(ctx context.Context, rt ReportType) error {
 		if err != nil {
 			return err
 		}
-		text = leagueCtx.ProjectedScoreboard(matchups, projections)
+		schedule, err := b.schedule(ctx, leagueCtx)
+		if err != nil {
+			return err
+		}
+		text = leagueCtx.ProjectedScoreboard(matchups, projections, schedule)
 
 	case ReportWeekdayScoreboard:
 		matchups, err := b.matchups(ctx, week)
@@ -177,7 +181,11 @@ func (b *Bot) Run(ctx context.Context, rt ReportType) error {
 		if err != nil {
 			return err
 		}
-		text = leagueCtx.WeekdayScoreboard(matchups, projections)
+		schedule, err := b.schedule(ctx, leagueCtx)
+		if err != nil {
+			return err
+		}
+		text = leagueCtx.WeekdayScoreboard(matchups, projections, schedule)
 
 	case ReportGameday:
 		matchups, err := b.matchups(ctx, week)
@@ -198,7 +206,11 @@ func (b *Bot) Run(ctx context.Context, rt ReportType) error {
 		if err != nil {
 			return err
 		}
-		text = leagueCtx.Matchups(matchups) + "\n" + leagueCtx.ProjectedScoreboard(matchups, projections)
+		schedule, err := b.schedule(ctx, leagueCtx)
+		if err != nil {
+			return err
+		}
+		text = leagueCtx.Matchups(matchups) + "\n" + leagueCtx.ProjectedScoreboard(matchups, projections, schedule)
 
 	case ReportStandings:
 		text = leagueCtx.Standings()
@@ -401,15 +413,31 @@ func (b *Bot) projectionHistory(ctx context.Context, leagueCtx *report.LeagueCon
 }
 
 func (b *Bot) projections(ctx context.Context, leagueCtx *report.LeagueContext, week int) ([]sleeper.PlayerProjection, error) {
-	seasonType := leagueCtx.League.SeasonType
-	if seasonType == "" {
-		seasonType = "regular"
-	}
-	projections, err := b.sleeper.GetProjections(ctx, leagueCtx.League.Season, week, seasonType)
+	projections, err := b.sleeper.GetProjections(ctx, leagueCtx.League.Season, week, seasonType(leagueCtx))
 	if err != nil {
 		return nil, fmt.Errorf("bot: fetch projections for week %d: %w", week, err)
 	}
 	return projections, nil
+}
+
+// schedule fetches the full-season NFL game schedule, which report code
+// cross-checks against a starter's team to tell a confirmed-final zero from
+// a starter who simply hasn't played yet (see report.completedTeamsForWeek).
+func (b *Bot) schedule(ctx context.Context, leagueCtx *report.LeagueContext) ([]sleeper.ScheduledGame, error) {
+	games, err := b.sleeper.GetSchedule(ctx, leagueCtx.League.Season, seasonType(leagueCtx))
+	if err != nil {
+		return nil, fmt.Errorf("bot: fetch NFL schedule: %w", err)
+	}
+	return games, nil
+}
+
+// seasonType returns the league's season type ("regular", "post", ...),
+// defaulting to "regular" for leagues that don't set one.
+func seasonType(leagueCtx *report.LeagueContext) string {
+	if leagueCtx.League.SeasonType == "" {
+		return "regular"
+	}
+	return leagueCtx.League.SeasonType
 }
 
 func (b *Bot) buildLeagueContext(ctx context.Context) (*report.LeagueContext, int, error) {

@@ -28,7 +28,7 @@ func (c *LeagueContext) ScoreboardShort(matchups []sleeper.Matchup) string {
 // WeekdayScoreboard renders the Friday/Monday recap: current scores followed
 // by each matchup's approximate projected final score, mirroring
 // gamedaybot's weekday "Score Update" post.
-func (c *LeagueContext) WeekdayScoreboard(matchups []sleeper.Matchup, projections []sleeper.PlayerProjection) string {
+func (c *LeagueContext) WeekdayScoreboard(matchups []sleeper.Matchup, projections []sleeper.PlayerProjection, schedule []sleeper.ScheduledGame) string {
 	games := pairGames(matchups)
 	if len(games) == 0 {
 		return NoMatchupData
@@ -44,26 +44,26 @@ func (c *LeagueContext) WeekdayScoreboard(matchups []sleeper.Matchup, projection
 			g.Away.Points, c.TeamAbbrev(g.Away.RosterID))
 	}
 
-	out += "\n" + c.projectedScoreboardBody(games, matchups, projections)
+	out += "\n" + c.projectedScoreboardBody(games, matchups, projections, schedule)
 	return out
 }
 
 // ProjectedScoreboard renders just the approximate projected final score for
 // each matchup (see projectedTeamPoints for how "approximate" is computed).
-func (c *LeagueContext) ProjectedScoreboard(matchups []sleeper.Matchup, projections []sleeper.PlayerProjection) string {
+func (c *LeagueContext) ProjectedScoreboard(matchups []sleeper.Matchup, projections []sleeper.PlayerProjection, schedule []sleeper.ScheduledGame) string {
 	games := pairGames(matchups)
 	if len(games) == 0 {
 		return NoMatchupData
 	}
-	return c.projectedScoreboardBody(games, matchups, projections)
+	return c.projectedScoreboardBody(games, matchups, projections, schedule)
 }
 
-func (c *LeagueContext) projectedScoreboardBody(games []Game, matchups []sleeper.Matchup, projections []sleeper.PlayerProjection) string {
+func (c *LeagueContext) projectedScoreboardBody(games []Game, matchups []sleeper.Matchup, projections []sleeper.PlayerProjection, schedule []sleeper.ScheduledGame) string {
 	projByPlayer := make(map[string]float64, len(projections))
-	scoringType := c.ScoringType()
 	for _, p := range projections {
-		projByPlayer[p.PlayerID] = p.Points(scoringType)
+		projByPlayer[p.PlayerID] = p.PointsForSettings(c.League.ScoringSettings)
 	}
+	completedTeams := completedTeamsForWeek(schedule, c.Week)
 
 	byRoster := make(map[int]sleeper.Matchup, len(matchups))
 	for _, m := range matchups {
@@ -75,28 +75,47 @@ func (c *LeagueContext) projectedScoreboardBody(games []Game, matchups []sleeper
 		if g.Away.RosterID == -1 {
 			continue
 		}
-		homeProj := projectedTeamPoints(byRoster[g.Home.RosterID], projByPlayer)
-		awayProj := projectedTeamPoints(byRoster[g.Away.RosterID], projByPlayer)
+		homeProj := c.projectedTeamPoints(byRoster[g.Home.RosterID], projByPlayer, completedTeams)
+		awayProj := c.projectedTeamPoints(byRoster[g.Away.RosterID], projByPlayer, completedTeams)
 		out += formatGameLine(c.TeamAbbrev(g.Home.RosterID), homeProj,
 			awayProj, c.TeamAbbrev(g.Away.RosterID))
 	}
 	return out
 }
 
+// completedTeamsForWeek returns the set of NFL team abbreviations whose game
+// for the given week is confirmed over, so projectedTeamPoints can tell a
+// starter who truly scored zero from one who simply hasn't played yet.
+func completedTeamsForWeek(schedule []sleeper.ScheduledGame, week int) map[string]bool {
+	complete := make(map[string]bool)
+	for _, g := range schedule {
+		if g.Week == week && g.Final() {
+			complete[g.Home] = true
+			complete[g.Away] = true
+		}
+	}
+	return complete
+}
+
 // projectedTeamPoints approximates a team's final score as the sum, over its
-// starting lineup, of each starter's actual points so far or - for starters
-// who haven't put up any points yet, whether because their game hasn't
-// started or they're still mid-game with a zero stat line - their projected
-// points for the week. Sleeper's public matchup data doesn't say whether a
-// given player's game has actually finished, so a starter who plays and
-// scores exactly zero is indistinguishable from one who hasn't played yet;
-// this is the same tradeoff gamedaybot makes, and the reason the report is
-// labeled "Approximate".
-func projectedTeamPoints(m sleeper.Matchup, projByPlayer map[string]float64) float64 {
+// starting lineup, of each starter's actual points or - for a starter whose
+// NFL game isn't confirmed over - their projected points for the week.
+// "Confirmed over" comes from completedTeams (see completedTeamsForWeek),
+// built from the real NFL schedule, so a starter who plays and scores
+// exactly zero is correctly read as final rather than mistaken for one who
+// hasn't played yet. A starter on a bye or otherwise missing from the
+// schedule instead falls back to gamedaybot's original heuristic - trust a
+// nonzero actual, otherwise use the projection - which is why the report is
+// still labeled "Approximate".
+func (c *LeagueContext) projectedTeamPoints(m sleeper.Matchup, projByPlayer map[string]float64, completedTeams map[string]bool) float64 {
 	var total float64
 	for i, playerID := range m.Starters {
-		if i < len(m.StartersPoints) && m.StartersPoints[i] > 0 {
-			total += m.StartersPoints[i]
+		var actual float64
+		if i < len(m.StartersPoints) {
+			actual = m.StartersPoints[i]
+		}
+		if actual != 0 || completedTeams[c.Players[playerID].Team] {
+			total += actual
 			continue
 		}
 		total += projByPlayer[playerID]

@@ -107,20 +107,28 @@ func (p Player) Name() string {
 }
 
 // PlayerProjection is one player's projected stat line for a week, from
-// Sleeper's undocumented /projections/nfl endpoint. Fantasy point totals
-// arrive pre-computed for the three standard scoring formats (Points below
-// picks the one matching the league's scoring settings); Sleeper does not
-// project a total for custom scoring rules, so this is always an
-// approximation for leagues with non-standard scoring.
+// Sleeper's undocumented /projections/nfl endpoint. Stats is keyed by the
+// same per-category names (rec, rec_yd, pass_td, fgm_40_49,
+// pts_allow_21_27, ...) as League.ScoringSettings, so PointsForSettings can
+// reconstruct exactly the score the league's own scoring rules would
+// produce - unlike Sleeper's precomputed pts_std/pts_half_ppr/pts_ppr
+// totals, which only cover a plain reception bonus and miss anything else
+// custom (TE premium, bonus yardage thresholds, etc.).
 type PlayerProjection struct {
 	PlayerID string             `json:"player_id"`
 	Stats    map[string]float64 `json:"stats"`
 }
 
-// Points returns the projected fantasy points for the given scoring type
-// ("ppr", "half_ppr", or "std"), or 0 if the player has no projection.
-func (p PlayerProjection) Points(scoringType string) float64 {
-	return p.Stats["pts_"+scoringType]
+// PointsForSettings returns the player's projected fantasy points under the
+// league's own scoring rules: the dot product of the projected per-category
+// stat line with the matching scoring-settings weights, the same way
+// Sleeper turns a player's actual box-score stat line into points.
+func (p PlayerProjection) PointsForSettings(scoringSettings map[string]float64) float64 {
+	var total float64
+	for stat, weight := range scoringSettings {
+		total += p.Stats[stat] * weight
+	}
+	return total
 }
 
 type NFLState struct {
@@ -128,4 +136,25 @@ type NFLState struct {
 	Season       string `json:"season"`
 	SeasonType   string `json:"season_type"`
 	LeagueSeason string `json:"league_season"`
+}
+
+// ScheduledGame is one NFL game, from Sleeper's undocumented schedule
+// endpoint (see Client.GetSchedule). Status is "pre_game", "complete", or
+// "canceled" in practice; a live in-progress game presumably reports some
+// other value, but that case is never distinguished from "pre_game" by
+// callers - both just mean "not confirmed over yet".
+type ScheduledGame struct {
+	Week   int    `json:"week"`
+	Home   string `json:"home"`
+	Away   string `json:"away"`
+	Status string `json:"status"`
+	Date   string `json:"date"`
+}
+
+// Final reports whether the game is over and its result won't change, so a
+// participating player's stat line for the week - including an actual
+// zero - is safe to treat as their final total rather than a stand-in for
+// "hasn't played yet".
+func (g ScheduledGame) Final() bool {
+	return g.Status == "complete" || g.Status == "canceled"
 }

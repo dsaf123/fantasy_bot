@@ -17,6 +17,8 @@ const (
 	// projectionsBaseURL is separate from defaultBaseURL because the
 	// undocumented projections endpoint lives outside Sleeper's /v1 API.
 	projectionsBaseURL = "https://api.sleeper.app/projections/nfl"
+	// scheduleBaseURL is likewise outside /v1; see GetSchedule.
+	scheduleBaseURL = "https://api.sleeper.app/schedule/nfl"
 )
 
 type Client struct {
@@ -119,8 +121,8 @@ func (c *Client) GetAllPlayers(ctx context.Context) (map[string]Player, error) {
 // GetProjections fetches Sleeper's per-player projected stat lines for every
 // NFL player for a given week, via an undocumented endpoint (not part of
 // Sleeper's published /v1 API, and not tied to any particular league - point
-// totals must be picked out per league scoring format, see
-// PlayerProjection.Points). seasonType is typically "regular".
+// totals must be computed per league scoring format, see
+// PlayerProjection.PointsForSettings). seasonType is typically "regular".
 func (c *Client) GetProjections(ctx context.Context, season string, week int, seasonType string) ([]PlayerProjection, error) {
 	var projections []PlayerProjection
 	url := projectionsBaseURL + "/" + season + "/" + strconv.Itoa(week) + "?season_type=" + seasonType
@@ -128,4 +130,20 @@ func (c *Client) GetProjections(ctx context.Context, season string, week int, se
 		return nil, err
 	}
 	return projections, nil
+}
+
+// GetSchedule fetches every game on the NFL schedule for the given season,
+// via an undocumented endpoint (not part of Sleeper's published /v1 API).
+// Unlike GetProjections, this isn't week-scoped server-side - it returns
+// the whole season in one call, so callers filter by ScheduledGame.Week.
+// seasonType is typically "regular". This is what lets report code tell a
+// starter whose game has actually finished (and so truly scored zero) from
+// one who simply hasn't played yet - see report.completedTeamsForWeek.
+func (c *Client) GetSchedule(ctx context.Context, season, seasonType string) ([]ScheduledGame, error) {
+	var games []ScheduledGame
+	url := scheduleBaseURL + "/" + seasonType + "/" + season
+	if err := c.get(ctx, url, &games); err != nil {
+		return nil, err
+	}
+	return games, nil
 }

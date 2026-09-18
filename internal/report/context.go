@@ -132,23 +132,6 @@ func deriveAbbrev(name string) string {
 	return b.String()
 }
 
-// ScoringType returns "ppr", "half_ppr", or "std" based on the league's
-// reception scoring setting, matching one of the three precomputed point
-// totals Sleeper's player projections publish (see
-// sleeper.PlayerProjection.Points). Leagues with scoring beyond a plain PPR
-// bonus (bonus yardage thresholds, TE premium, etc.) aren't reflected, which
-// is why the projected scoreboard is always labeled "Approximate".
-func (c *LeagueContext) ScoringType() string {
-	switch rec := c.League.ScoringSettings["rec"]; {
-	case rec >= 1:
-		return "ppr"
-	case rec > 0:
-		return "half_ppr"
-	default:
-		return "std"
-	}
-}
-
 // PlayerName resolves a Sleeper player ID to a display name.
 func (c *LeagueContext) PlayerName(playerID string) string {
 	if p, ok := c.Players[playerID]; ok {
