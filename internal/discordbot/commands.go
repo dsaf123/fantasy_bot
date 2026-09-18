@@ -180,7 +180,7 @@ func handleSubcommand(cfg *config.Config, mgr *settings.Manager, sub *discordgo.
 	case "job":
 		name := opts["name"].StringValue()
 		enabled := opts["enabled"].BoolValue()
-		if err := mgr.Save(applyJobToggle(mgr.Get(), name, enabled)); err != nil {
+		if err := mgr.Save(applyJobToggle(mgr.Get(), name, enabled, cfg)); err != nil {
 			return "", err
 		}
 		label := name
@@ -200,7 +200,7 @@ func handleSubcommand(cfg *config.Config, mgr *settings.Manager, sub *discordgo.
 		if err != nil {
 			return "", err
 		}
-		if err := mgr.Save(applyWaiverDays(mgr.Get(), days)); err != nil {
+		if err := mgr.Save(applyWaiverDays(mgr.Get(), days, cfg)); err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("✅ Waiver Report will now post: **%s**.", formatWaiverDays(days)), nil
@@ -210,7 +210,7 @@ func handleSubcommand(cfg *config.Config, mgr *settings.Manager, sub *discordgo.
 		if tz == "" {
 			return "", fmt.Errorf("timezone can't be blank")
 		}
-		if err := mgr.Save(applyTimezone(mgr.Get(), tz)); err != nil {
+		if err := mgr.Save(applyTimezone(mgr.Get(), tz, cfg)); err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("✅ Timezone set to **%s**.", tz), nil

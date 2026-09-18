@@ -2,6 +2,7 @@ package discordbot
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -123,33 +124,62 @@ func truncate(s string, max int) string {
 // applyJobToggle returns cur with job's enabled override set, leaving every
 // other override untouched. It copies cur.JobEnabled rather than mutating it
 // in place, since that map is shared with whatever the caller's
-// settings.Manager.Get() returned.
-func applyJobToggle(cur settings.Settings, job string, enabled bool) settings.Settings {
+// settings.Manager.Get() returned. If enabled matches job's .env-derived
+// default, the override is cleared instead of stored, so /settings view
+// doesn't keep showing "(override)" for a value that no longer differs from
+// default - see internal/portal/handlers.go's settingsFromForm for the same
+// rule applied to the web portal's save.
+func applyJobToggle(cur settings.Settings, job string, enabled bool, cfg *config.Config) settings.Settings {
 	next := cur
 	jobEnabled := make(map[string]bool, len(cur.JobEnabled)+1)
 	for k, v := range cur.JobEnabled {
 		jobEnabled[k] = v
 	}
-	jobEnabled[job] = enabled
+	if enabled == settings.DefaultJobEnabled(job, cfg) {
+		delete(jobEnabled, job)
+	} else {
+		jobEnabled[job] = enabled
+	}
+	if len(jobEnabled) == 0 {
+		jobEnabled = nil
+	}
 	next.JobEnabled = jobEnabled
 	return next
 }
 
-func applyWaiverDays(cur settings.Settings, days []int) settings.Settings {
+// applyWaiverDays sets cur's waiver-days override, clearing it instead if
+// days is exactly cfg's default set (see applyJobToggle).
+func applyWaiverDays(cur settings.Settings, days []int, cfg *config.Config) settings.Settings {
 	next := cur
-	next.WaiverDays = &days
+	if slices.Equal(days, settings.DefaultWaiverDays(cfg)) {
+		next.WaiverDays = nil
+	} else {
+		next.WaiverDays = &days
+	}
 	return next
 }
 
-func applyTimezone(cur settings.Settings, tz string) settings.Settings {
+// applyTimezone sets cur's timezone override, clearing it instead if tz
+// matches cfg.Timezone (see applyJobToggle).
+func applyTimezone(cur settings.Settings, tz string, cfg *config.Config) settings.Settings {
 	next := cur
-	next.Timezone = &tz
+	if tz == cfg.Timezone {
+		next.Timezone = nil
+	} else {
+		next.Timezone = &tz
+	}
 	return next
 }
 
+// applyRecapPrompt sets cur's recap-prompt override, clearing it instead if
+// prompt matches settings.DefaultRecapPrompt (see applyJobToggle).
 func applyRecapPrompt(cur settings.Settings, prompt string) settings.Settings {
 	next := cur
-	next.RecapPrompt = &prompt
+	if prompt == settings.DefaultRecapPrompt {
+		next.RecapPrompt = nil
+	} else {
+		next.RecapPrompt = &prompt
+	}
 	return next
 }
 

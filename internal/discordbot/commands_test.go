@@ -46,7 +46,9 @@ func TestHandleSubcommandView(t *testing.T) {
 }
 
 func TestHandleSubcommandJobTogglePersists(t *testing.T) {
-	cfg := &config.Config{}
+	// MonitorReport:true so monitor's default is enabled and setting it to
+	// false below is a genuine override, not a no-op match on the default.
+	cfg := &config.Config{MonitorReport: true}
 	mgr := newTestManager(t)
 
 	content, err := handleSubcommand(cfg, mgr, sub("job", strOpt("name", "monitor"), boolOpt("enabled", false)))
@@ -58,6 +60,41 @@ func TestHandleSubcommandJobTogglePersists(t *testing.T) {
 	}
 	if mgr.Get().JobIsEnabled("monitor", true) {
 		t.Error("monitor should be persisted as disabled")
+	}
+}
+
+// TestHandleSubcommandJobToggleToDefaultClearsOverride is the end-to-end
+// version of TestApplyJobToggleMatchingDefaultClearsOverride: it checks that
+// /settings view actually stops showing "(override)" once an admin sets a
+// job back to its .env default through the real subcommand dispatch, not
+// just that the lower-level apply function behaves - i.e. the exact
+// symptom described as "do the same for the discord /settings view
+// command" after the web portal's override-badge fix.
+func TestHandleSubcommandJobToggleToDefaultClearsOverride(t *testing.T) {
+	cfg := &config.Config{MonitorReport: true}
+	mgr := newTestManager(t)
+	if err := mgr.Save(settings.Settings{JobEnabled: map[string]bool{"monitor": false}}); err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := handleSubcommand(cfg, mgr, sub("view"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(before, "Injury Monitor _(override)_") {
+		t.Fatalf("expected monitor to show as overridden before the fix: %s", before)
+	}
+
+	if _, err := handleSubcommand(cfg, mgr, sub("job", strOpt("name", "monitor"), boolOpt("enabled", true))); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := handleSubcommand(cfg, mgr, sub("view"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(after, "_(override)_") {
+		t.Errorf("no field should show as overridden once monitor matches its .env default again: %s", after)
 	}
 }
 
