@@ -35,3 +35,19 @@ func TestRosterDigest(t *testing.T) {
 		}
 	}
 }
+
+func TestTeamLabels(t *testing.T) {
+	users := []sleeper.User{
+		{UserID: "u1", DisplayName: "alice", Metadata: sleeper.UserMetadata{TeamName: "Gridiron Gang"}},
+		{UserID: "u2", DisplayName: "bob"}, // no custom team name: TeamName is already "bob"
+	}
+	rosters := []sleeper.Roster{
+		{RosterID: 1, OwnerID: "u1"},
+		{RosterID: 2, OwnerID: "u2"},
+		{RosterID: 3, OwnerID: ""}, // orphaned
+	}
+	got := strings.Join(TeamLabels(rosters, users), "|")
+	if want := "Gridiron Gang (alice)|Team 3|bob"; got != want {
+		t.Errorf("TeamLabels = %q, want %q", got, want)
+	}
+}

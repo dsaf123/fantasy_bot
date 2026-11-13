@@ -14,18 +14,24 @@ import (
 	"fantasy_bot/internal/settings"
 )
 
-// Answerer writes a reply to a free-form question about the league (see
-// bot.Bot.Answer). asker is the asker's display name; replyingTo is the
-// text of the message they replied to, if any.
-type Answerer interface {
+// LeagueAI is the AI-backed league chat this package exposes in Discord,
+// implemented by bot.Bot.
+type LeagueAI interface {
+	// Answer replies to a free-form question about the league (see
+	// bot.Bot.Answer). asker is the asker's display name; replyingTo is
+	// the text of the message they replied to, if any.
 	Answer(ctx context.Context, asker, question, replyingTo string) (string, error)
+	// Roast writes a roast of a league member's team (see bot.Bot.Roast).
+	Roast(ctx context.Context, requester string, targetNames []string, team string) (string, error)
+	// TeamNames lists the league's teams for /roast's autocomplete.
+	TeamNames(ctx context.Context) ([]string, error)
 }
 
 const (
-	// mentionCooldown is how long one user must wait between questions,
-	// since every answer is a paid LLM call plus a burst of Sleeper API
-	// requests.
-	mentionCooldown = 20 * time.Second
+	// aiCooldown is how long one user must wait between questions or
+	// roasts (shared across both), since each is a paid LLM call plus a
+	// burst of Sleeper API requests.
+	aiCooldown = 20 * time.Second
 	// answerTimeout bounds the whole answer, data fetch plus LLM call.
 	answerTimeout = 2 * time.Minute
 	// typingRefresh re-sends the "is typing…" indicator, which Discord
@@ -46,10 +52,10 @@ const emptyQuestionReply = "Hey! Ask me anything about the league - standings, m
 // mentionHandler answers questions when someone @mentions the bot in a
 // server channel.
 type mentionHandler struct {
-	cfg      *config.Config
-	mgr      *settings.Manager
-	answerer Answerer
-	cool     *cooldowns
+	cfg  *config.Config
+	mgr  *settings.Manager
+	ai   LeagueAI
+	cool *cooldowns
 
 	// botRoles caches, per guild ID, the managed role Discord creates for
 	// this bot when it joins a server (see botRoleIDs).
@@ -57,12 +63,12 @@ type mentionHandler struct {
 	botRoles   map[string]map[string]bool
 }
 
-func newMentionHandler(cfg *config.Config, mgr *settings.Manager, answerer Answerer) *mentionHandler {
+func newMentionHandler(cfg *config.Config, mgr *settings.Manager, ai LeagueAI, cool *cooldowns) *mentionHandler {
 	return &mentionHandler{
 		cfg:      cfg,
 		mgr:      mgr,
-		answerer: answerer,
-		cool:     newCooldowns(mentionCooldown),
+		ai:       ai,
+		cool:     cool,
 		botRoles: make(map[string]map[string]bool),
 	}
 }
@@ -106,7 +112,7 @@ func (h *mentionHandler) handle(s *discordgo.Session, m *discordgo.MessageCreate
 	defer cancel()
 	go keepTyping(ctx, s, m.ChannelID)
 
-	answer, err := h.answerer.Answer(ctx, askerName(m.Message), question, referencedText(m.Message))
+	answer, err := h.ai.Answer(ctx, askerName(m.Message), question, referencedText(m.Message))
 	cancel() // stop the typing indicator before replying
 	if err != nil {
 		log.Printf("discordbot: answer mention from %s: %v", m.Author.ID, err)

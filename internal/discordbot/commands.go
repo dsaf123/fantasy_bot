@@ -11,8 +11,8 @@ import (
 	"fantasy_bot/internal/settings"
 )
 
-// rootCommandName is the single slash command this package registers;
-// everything lives under /settings <subcommand> rather than as separate
+// rootCommandName is the admin slash command this package registers;
+// every setting lives under /settings <subcommand> rather than as separate
 // top-level commands, so there's just one entry for Discord's command list
 // and for a server admin's own permission overrides to manage.
 const rootCommandName = "settings"
@@ -29,9 +29,10 @@ var defaultMemberPermissions = int64(discordgo.PermissionManageGuild)
 // there and bypass the "Manage Server" gate entirely.
 var commandsUsableInDMs = false
 
-// buildCommands returns the /settings command tree, built from
-// settings.Jobs so its "job" subcommand's choices can never drift from the
-// portal's job table.
+// buildCommands returns every slash command this bot registers: the
+// /settings command tree (built from settings.Jobs so its "job"
+// subcommand's choices can never drift from the portal's job table) and
+// /roast.
 func buildCommands() []*discordgo.ApplicationCommand {
 	jobNameChoices := make([]*discordgo.ApplicationCommandOptionChoice, len(settings.Jobs))
 	for i, j := range settings.Jobs {
@@ -141,20 +142,32 @@ func buildCommands() []*discordgo.ApplicationCommand {
 				},
 			},
 		},
+		roastCommand(),
 	}
 }
 
 // interactionHandler returns the discordgo handler for every interaction
-// the session receives, dispatching /settings's subcommands to
-// handleSubcommand and always replying ephemerally - these are admin
-// controls, not something that should clutter the channel.
-func interactionHandler(cfg *config.Config, mgr *settings.Manager) func(*discordgo.Session, *discordgo.InteractionCreate) {
+// the session receives: /roast (and its team autocomplete) goes to roast,
+// and /settings's subcommands to handleSubcommand, always replying
+// ephemerally - these are admin controls, not something that should
+// clutter the channel.
+func interactionHandler(cfg *config.Config, mgr *settings.Manager, roast *roastHandler) func(*discordgo.Session, *discordgo.InteractionCreate) {
 	return func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-		if i.Type != discordgo.InteractionApplicationCommand {
+		switch i.Type {
+		case discordgo.InteractionApplicationCommand, discordgo.InteractionApplicationCommandAutocomplete:
+		default:
 			return
 		}
 		data := i.ApplicationCommandData()
-		if data.Name != rootCommandName || len(data.Options) == 0 {
+		if data.Name == roastCommandName {
+			if i.Type == discordgo.InteractionApplicationCommandAutocomplete {
+				roast.autocomplete(s, i)
+			} else {
+				roast.handle(s, i)
+			}
+			return
+		}
+		if i.Type != discordgo.InteractionApplicationCommand || data.Name != rootCommandName || len(data.Options) == 0 {
 			return
 		}
 

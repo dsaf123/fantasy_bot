@@ -68,7 +68,7 @@ func main() {
 		log.Printf("portal: PORTAL_PASSWORD not set, portal disabled")
 	}
 
-	// The Discord bot (/settings slash command and @mention replies) is
+	// The Discord bot (/settings, /roast, and @mention replies) is
 	// likewise supplementary: a failure to connect (bad token, network
 	// issue) is logged rather than fatal.
 	if cfg.DiscordBotToken != "" {

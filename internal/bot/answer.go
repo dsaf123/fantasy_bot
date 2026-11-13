@@ -38,45 +38,63 @@ const (
 // shown to the asker as-is; a non-nil error means something actually broke.
 func (b *Bot) Answer(ctx context.Context, asker, question, replyingTo string) (string, error) {
 	if b.llm == nil {
-		return "I can't answer questions yet - no AI provider is configured (LLM_API_KEY in .env).", nil
+		return noLLMReply, nil
+	}
+	data, unavailable, err := b.leagueSnapshot(ctx)
+	if err != nil || unavailable != "" {
+		return unavailable, err
 	}
 
-	leagueCtx, week, err := b.buildLeagueContext(ctx)
-	if errors.Is(err, errSeasonNotStarted) {
-		return "The season hasn't started yet, so I don't have any league data to talk about. Ask me again once Week 1 kicks off!", nil
-	}
-	if err != nil {
-		return "", err
-	}
-
-	var data strings.Builder
-	if finalWeek := week - 1; finalWeek >= 1 {
-		history, err := b.matchupHistory(ctx, finalWeek)
-		if err != nil {
-			return "", err
-		}
-		data.WriteString(leagueCtx.RecapDigest(history, finalWeek))
-	} else {
-		fmt.Fprintf(&data, "League: %s - Week 1 in progress, no completed weeks yet\n\n", leagueCtx.League.Name)
-		data.WriteString(leagueCtx.Standings())
-	}
-	data.WriteString("\n")
-
-	current, err := b.matchups(ctx, week)
-	if err != nil {
-		return "", err
-	}
-	data.WriteString("This week (in progress):\n")
-	data.WriteString(leagueCtx.ScoreboardShort(current))
-	data.WriteString("\n")
-	data.WriteString(leagueCtx.RosterDigest())
-
-	userPrompt := buildChatPrompt(asker, question, replyingTo, data.String())
+	userPrompt := buildChatPrompt(asker, question, replyingTo, data)
 	answer, err := b.llm.Generate(ctx, chatSystemPrompt, userPrompt)
 	if err != nil {
 		return "", fmt.Errorf("bot: answer question: %w", err)
 	}
 	return strings.TrimSpace(answer), nil
+}
+
+const (
+	noLLMReply       = "I can't do that yet - no AI provider is configured (LLM_API_KEY in .env)."
+	seasonNotStarted = "The season hasn't started yet, so I don't have any league data to work with. Try again once Week 1 kicks off!"
+)
+
+// leagueSnapshot gathers the league data the AI chat features (Answer,
+// Roast) work from: the recap digest through the last completed week
+// (standings, streaks, head-to-head, playoff race, lineup regret), this
+// week's in-progress scores, and every roster. If there's nothing to
+// snapshot yet (offseason), it returns a friendly explanation in
+// unavailable instead.
+func (b *Bot) leagueSnapshot(ctx context.Context) (data, unavailable string, err error) {
+	leagueCtx, week, err := b.buildLeagueContext(ctx)
+	if errors.Is(err, errSeasonNotStarted) {
+		return "", seasonNotStarted, nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+
+	var out strings.Builder
+	if finalWeek := week - 1; finalWeek >= 1 {
+		history, err := b.matchupHistory(ctx, finalWeek)
+		if err != nil {
+			return "", "", err
+		}
+		out.WriteString(leagueCtx.RecapDigest(history, finalWeek))
+	} else {
+		fmt.Fprintf(&out, "League: %s - Week 1 in progress, no completed weeks yet\n\n", leagueCtx.League.Name)
+		out.WriteString(leagueCtx.Standings())
+	}
+	out.WriteString("\n")
+
+	current, err := b.matchups(ctx, week)
+	if err != nil {
+		return "", "", err
+	}
+	out.WriteString("This week (in progress):\n")
+	out.WriteString(leagueCtx.ScoreboardShort(current))
+	out.WriteString("\n")
+	out.WriteString(leagueCtx.RosterDigest())
+	return out.String(), "", nil
 }
 
 // buildChatPrompt assembles Answer's user prompt. The question goes first

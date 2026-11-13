@@ -138,9 +138,11 @@ To turn this on:
    (your server's ID) is optional — without it, new/changed commands can
    take up to an hour to appear (Discord's global-command propagation
    delay); with it, they show up within seconds.
-4. Restart the bot. It logs `discordbot: connected as ..., /settings
-   registered ...` once it's up, or `discordbot: DISCORD_BOT_TOKEN not set,
+4. Restart the bot. It logs `discordbot: connected as ..., /settings and
+   /roast registered ...` once it's up, or `discordbot: DISCORD_BOT_TOKEN not set,
    slash commands and @mention replies disabled` if the token is missing.
+   The same bot also serves [mention replies](#mention-replies) and
+   [`/roast`](#roast).
 
 ### Mention replies
 
@@ -156,8 +158,9 @@ you replied to included as context.
 
 - It's on by default whenever `LLM_API_KEY` is set; turn it off from the
   web portal's "Chat replies" card or `/settings mentions enabled:false`.
-- Each person can ask once every 20 seconds; extra questions in that window
-  get a ⏳ reaction instead of an answer. Every answer is one LLM call.
+- Each person can ask once every 20 seconds (shared with
+  [`/roast`](#roast)); extra questions in that window get a ⏳ reaction
+  instead of an answer. Every answer is one LLM call.
 - It only answers in servers (not DMs), never pings anyone but the person
   who asked, and ignores other bots — including the report webhook.
 - Replies come from the bot user rather than the report webhook. To make
@@ -174,6 +177,27 @@ you replied to included as context.
   its same-named role. Role mentions are recognized, but Discord may hide
   the message text from the bot, in which case it replies asking you to
   mention it again.
+
+### Roast
+
+`/roast` has the bot publicly roast a league member's fantasy team — their
+record, losing streaks, bench blunders, injured players, playoff odds —
+using the same league snapshot and AI provider as [mention
+replies](#mention-replies). It needs `DISCORD_BOT_TOKEN` and `LLM_API_KEY`.
+
+| Option | What it does |
+| --- | --- |
+| `who` | The Discord member to roast. They get pinged, and the bot matches their Discord names to a Sleeper manager or team. |
+| `team` | Their league team, picked from an autocomplete list. Use it when someone's Discord name doesn't match their Sleeper name. |
+
+Give at least one of the two. If the bot can't tell which team is theirs,
+it says so and keeps the roast general rather than pinning someone else's
+stats on them. It sticks to fantasy football: nothing personal.
+
+Anyone in the server can run it, and each person can roast once every 20
+seconds (shared with mention replies). It's not a portal setting: to limit
+who can use it, or turn it off, use **Server Settings → Integrations →
+fantasy_bot → /roast** in Discord.
 
 ## Running locally
 

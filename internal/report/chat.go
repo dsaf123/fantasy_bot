@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"fantasy_bot/internal/sleeper"
 )
 
 // RosterDigest lists every team's manager and current roster (starters,
@@ -86,4 +88,22 @@ func joinOrNone(names []string) string {
 		return "none"
 	}
 	return strings.Join(names, "; ")
+}
+
+// TeamLabels names every roster as "Team Name (manager)", or just the team
+// name when it's already the manager's display name (no custom team name
+// set), sorted alphabetically - for picking a team by name, e.g. /roast's
+// autocomplete (see bot.Bot.TeamNames).
+func TeamLabels(rosters []sleeper.Roster, users []sleeper.User) []string {
+	c := NewLeagueContext(sleeper.League{}, rosters, users, nil, 0)
+	labels := make([]string, 0, len(rosters))
+	for _, r := range rosters {
+		name := c.TeamName(r.RosterID)
+		if u, ok := c.userByID[r.OwnerID]; ok && u.DisplayName != "" && u.DisplayName != name {
+			name = fmt.Sprintf("%s (%s)", name, u.DisplayName)
+		}
+		labels = append(labels, name)
+	}
+	sort.Strings(labels)
+	return labels
 }
