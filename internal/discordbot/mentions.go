@@ -11,6 +11,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 
 	"fantasy_bot/internal/config"
+	"fantasy_bot/internal/report"
 	"fantasy_bot/internal/settings"
 )
 
@@ -18,13 +19,14 @@ import (
 // implemented by bot.Bot.
 type LeagueAI interface {
 	// Answer replies to a free-form question about the league (see
-	// bot.Bot.Answer). asker is the asker's display name; replyingTo is
-	// the text of the message they replied to, if any.
-	Answer(ctx context.Context, asker, question, replyingTo string) (string, error)
+	// bot.Bot.Answer). asker is the asker's display name and askerTeam
+	// their linked team's label, if any; replyingTo is the text of the
+	// message they replied to, if any.
+	Answer(ctx context.Context, asker, askerTeam, question, replyingTo string) (string, error)
 	// Roast writes a roast of a league member's team (see bot.Bot.Roast).
 	Roast(ctx context.Context, requester string, targetNames []string, team string) (string, error)
-	// TeamNames lists the league's teams for /roast's autocomplete.
-	TeamNames(ctx context.Context) ([]string, error)
+	// Teams lists the league's teams, for team autocomplete and linking.
+	Teams(ctx context.Context) ([]report.TeamRef, error)
 }
 
 const (
@@ -52,10 +54,11 @@ const emptyQuestionReply = "Hey! Ask me anything about the league - standings, m
 // mentionHandler answers questions when someone @mentions the bot in a
 // server channel.
 type mentionHandler struct {
-	cfg  *config.Config
-	mgr  *settings.Manager
-	ai   LeagueAI
-	cool *cooldowns
+	cfg   *config.Config
+	mgr   *settings.Manager
+	ai    LeagueAI
+	cool  *cooldowns
+	teams *teamDirectory
 
 	// botRoles caches, per guild ID, the managed role Discord creates for
 	// this bot when it joins a server (see botRoleIDs).
@@ -63,12 +66,13 @@ type mentionHandler struct {
 	botRoles   map[string]map[string]bool
 }
 
-func newMentionHandler(cfg *config.Config, mgr *settings.Manager, ai LeagueAI, cool *cooldowns) *mentionHandler {
+func newMentionHandler(cfg *config.Config, mgr *settings.Manager, ai LeagueAI, cool *cooldowns, teams *teamDirectory) *mentionHandler {
 	return &mentionHandler{
 		cfg:      cfg,
 		mgr:      mgr,
 		ai:       ai,
 		cool:     cool,
+		teams:    teams,
 		botRoles: make(map[string]map[string]bool),
 	}
 }
@@ -93,7 +97,14 @@ func (h *mentionHandler) handle(s *discordgo.Session, m *discordgo.MessageCreate
 		h.reply(s, m.Message, unreadableReply)
 		return
 	}
-	question := cleanQuestion(m.Content, botID, m.Mentions)
+	ctx, cancel := context.WithTimeout(context.Background(), answerTimeout)
+	defer cancel()
+	teamOf := func(userID string) string {
+		team, _ := h.teams.linkedTeam(ctx, userID)
+		return team
+	}
+
+	question := cleanQuestion(m.Content, botID, m.Mentions, teamOf)
 	if question == "" {
 		h.reply(s, m.Message, emptyQuestionReply)
 		return
@@ -108,12 +119,11 @@ func (h *mentionHandler) handle(s *discordgo.Session, m *discordgo.MessageCreate
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), answerTimeout)
-	defer cancel()
-	go keepTyping(ctx, s, m.ChannelID)
+	typingCtx, stopTyping := context.WithCancel(ctx)
+	go keepTyping(typingCtx, s, m.ChannelID)
 
-	answer, err := h.ai.Answer(ctx, askerName(m.Message), question, referencedText(m.Message))
-	cancel() // stop the typing indicator before replying
+	answer, err := h.ai.Answer(ctx, askerName(m.Message), teamOf(m.Author.ID), question, referencedText(m.Message))
+	stopTyping() // before replying, so "is typing…" doesn't linger
 	if err != nil {
 		log.Printf("discordbot: answer mention from %s: %v", m.Author.ID, err)
 		answer = "Sorry, I couldn't come up with an answer right now - try again in a bit."
@@ -229,15 +239,22 @@ func mentionsUser(users []*discordgo.User, id string) bool {
 var mentionTokenRE = regexp.MustCompile(`<@[!&]?(\d+)>`)
 
 // cleanQuestion turns a message's raw content into the question text: the
-// bot's own mention is removed, other user mentions become "@Name" so the
-// model can tell who's being talked about, and role mentions (the bot's own
+// bot's own mention is removed, other user mentions become "@Name" - or
+// "@Name (team: Label)" when teamOf knows their linked team - so the model
+// can tell who's being talked about, and role mentions (the bot's own
 // integration role included - see mentionsBotRole) are dropped, since the
 // model couldn't resolve them anyway.
-func cleanQuestion(content, botID string, mentions []*discordgo.User) string {
+func cleanQuestion(content, botID string, mentions []*discordgo.User, teamOf func(userID string) string) string {
 	names := make(map[string]string, len(mentions))
 	for _, u := range mentions {
-		if u != nil {
-			names[u.ID] = u.DisplayName()
+		if u == nil || u.ID == botID {
+			continue
+		}
+		names[u.ID] = u.DisplayName()
+		if teamOf != nil {
+			if team := teamOf(u.ID); team != "" {
+				names[u.ID] += " (team: " + team + ")"
+			}
 		}
 	}
 

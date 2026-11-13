@@ -108,6 +108,9 @@ func buildView(cfg *config.Config, cur settings.Settings) string {
 		fmt.Fprintf(&b, "%s %s%s\n", mark, j.Label, overrideNote(overridden))
 	}
 
+	b.WriteString("\n**Team links:**\n")
+	b.WriteString(formatTeamLinks(cur.TeamLinks))
+
 	return b.String()
 }
 
@@ -201,11 +204,12 @@ func applyMentionReplies(cur settings.Settings, enabled bool, cfg *config.Config
 }
 
 // applyReset mirrors the web portal's "reset_all"/"reset_prompt" actions
-// (see internal/portal/handlers.go's handleSaveSettings).
+// (see internal/portal/handlers.go's handleSaveSettings). Team links are
+// league data rather than overrides, so even "all" keeps them.
 func applyReset(cur settings.Settings, scope string) (settings.Settings, error) {
 	switch scope {
 	case "all":
-		return settings.Settings{}, nil
+		return settings.KeepLinks(settings.Settings{}, cur), nil
 	case "recap_prompt":
 		next := cur
 		next.RecapPrompt = nil

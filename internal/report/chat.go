@@ -90,20 +90,31 @@ func joinOrNone(names []string) string {
 	return strings.Join(names, "; ")
 }
 
-// TeamLabels names every roster as "Team Name (manager)", or just the team
-// name when it's already the manager's display name (no custom team name
-// set), sorted alphabetically - for picking a team by name, e.g. /roast's
-// autocomplete (see bot.Bot.TeamNames).
-func TeamLabels(rosters []sleeper.Roster, users []sleeper.User) []string {
+// TeamRef identifies one league team for pickers like /roast's
+// autocomplete: OwnerID is the owning Sleeper user's ID (stable across team
+// renames, so it's what gets stored - see settings.TeamLink), and Label is
+// "Team Name (manager)", or just the team name when it's already the
+// manager's display name.
+type TeamRef struct {
+	OwnerID string
+	Label   string
+}
+
+// Teams lists every owned roster as a TeamRef, sorted by label. Orphaned
+// rosters (no owner) are left out, since there's no one to link or roast.
+func Teams(rosters []sleeper.Roster, users []sleeper.User) []TeamRef {
 	c := NewLeagueContext(sleeper.League{}, rosters, users, nil, 0)
-	labels := make([]string, 0, len(rosters))
+	teams := make([]TeamRef, 0, len(rosters))
 	for _, r := range rosters {
-		name := c.TeamName(r.RosterID)
-		if u, ok := c.userByID[r.OwnerID]; ok && u.DisplayName != "" && u.DisplayName != name {
-			name = fmt.Sprintf("%s (%s)", name, u.DisplayName)
+		if r.OwnerID == "" {
+			continue
 		}
-		labels = append(labels, name)
+		label := c.TeamName(r.RosterID)
+		if u, ok := c.userByID[r.OwnerID]; ok && u.DisplayName != "" && u.DisplayName != label {
+			label = fmt.Sprintf("%s (%s)", label, u.DisplayName)
+		}
+		teams = append(teams, TeamRef{OwnerID: r.OwnerID, Label: label})
 	}
-	sort.Strings(labels)
-	return labels
+	sort.Slice(teams, func(i, j int) bool { return teams[i].Label < teams[j].Label })
+	return teams
 }

@@ -3,8 +3,8 @@ package discordbot
 import (
 	"context"
 	"log"
+	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -16,17 +16,6 @@ import (
 // Discord's own Integrations settings.
 const roastCommandName = "roast"
 
-const (
-	// teamCacheTTL is how long /roast's team autocomplete reuses one
-	// Sleeper lookup - teams rarely change, and autocomplete fires on every
-	// keystroke.
-	teamCacheTTL = 5 * time.Minute
-	// maxAutocompleteChoices is Discord's cap on autocomplete suggestions.
-	maxAutocompleteChoices = 25
-	// maxChoiceLen is Discord's cap on an option choice's name and value.
-	maxChoiceLen = 100
-)
-
 func roastCommand() *discordgo.ApplicationCommand {
 	return &discordgo.ApplicationCommand{
 		Name:         roastCommandName,
@@ -36,30 +25,28 @@ func roastCommand() *discordgo.ApplicationCommand {
 			{
 				Type:        discordgo.ApplicationCommandOptionUser,
 				Name:        "who",
-				Description: "The league member to roast (they'll be pinged)",
+				Description: "The league member to roast (they'll be pinged; uses their linked team if set)",
 			},
 			{
 				Type:         discordgo.ApplicationCommandOptionString,
 				Name:         "team",
-				Description:  "Their team, if the bot can't tell from their Discord name",
+				Description:  "The team to roast (pings whoever's linked to it)",
 				Autocomplete: true,
 			},
 		},
 	}
 }
 
-// roastHandler serves /roast and its team autocomplete.
+// roastHandler serves /roast. Its team autocomplete is answered by the
+// shared teamDirectory.
 type roastHandler struct {
-	ai   LeagueAI
-	cool *cooldowns
-
-	teamsMu      sync.Mutex
-	teams        []string
-	teamsFetched time.Time
+	ai    LeagueAI
+	cool  *cooldowns
+	teams *teamDirectory
 }
 
-func newRoastHandler(ai LeagueAI, cool *cooldowns) *roastHandler {
-	return &roastHandler{ai: ai, cool: cool}
+func newRoastHandler(ai LeagueAI, cool *cooldowns, teams *teamDirectory) *roastHandler {
+	return &roastHandler{ai: ai, cool: cool, teams: teams}
 }
 
 // handle runs /roast. Writing the roast takes longer than Discord's
@@ -67,7 +54,7 @@ func newRoastHandler(ai LeagueAI, cool *cooldowns) *roastHandler {
 // and edits in the roast once it's ready.
 func (h *roastHandler) handle(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
-	var targetID, team string
+	var targetID, teamInput string
 	for _, o := range data.Options {
 		switch o.Name {
 		case "who":
@@ -75,10 +62,10 @@ func (h *roastHandler) handle(s *discordgo.Session, i *discordgo.InteractionCrea
 				targetID = id
 			}
 		case "team":
-			team = strings.TrimSpace(o.StringValue())
+			teamInput = strings.TrimSpace(o.StringValue())
 		}
 	}
-	if targetID == "" && team == "" {
+	if targetID == "" && teamInput == "" {
 		respondEphemeral(s, i, "Pick someone to roast with `who`, a team with `team`, or both.")
 		return
 	}
@@ -101,6 +88,7 @@ func (h *roastHandler) handle(s *discordgo.Session, i *discordgo.InteractionCrea
 
 	ctx, cancel := context.WithTimeout(context.Background(), answerTimeout)
 	defer cancel()
+	team, pings := h.target(ctx, targetID, teamInput)
 	roast, err := h.ai.Roast(ctx, interactionUserName(i), targetNames(data.Resolved, targetID), team)
 	if err != nil {
 		log.Printf("discordbot: /%s from %s: %v", roastCommandName, invoker.ID, err)
@@ -112,10 +100,13 @@ func (h *roastHandler) handle(s *discordgo.Session, i *discordgo.InteractionCrea
 
 	// Ping the target (that's half the fun) but nobody else, whatever the
 	// LLM wrote.
-	allowed := &discordgo.MessageAllowedMentions{Parse: []discordgo.AllowedMentionType{}}
-	if targetID != "" {
-		roast = "<@" + targetID + "> " + roast
-		allowed.Users = []string{targetID}
+	allowed := &discordgo.MessageAllowedMentions{Parse: []discordgo.AllowedMentionType{}, Users: pings}
+	if len(pings) > 0 {
+		var prefix strings.Builder
+		for _, id := range pings {
+			prefix.WriteString("<@" + id + "> ")
+		}
+		roast = prefix.String() + roast
 	}
 
 	for n, chunk := range splitMessage(roast, messageLimit) {
@@ -131,70 +122,30 @@ func (h *roastHandler) handle(s *discordgo.Session, i *discordgo.InteractionCrea
 	}
 }
 
-// autocomplete suggests league teams matching what's been typed into
-// /roast's team option.
-func (h *roastHandler) autocomplete(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	var typed string
-	for _, o := range i.ApplicationCommandData().Options {
-		if o.Focused {
-			typed = o.StringValue()
+// target works out which team /roast is about and who to ping, using the
+// team links (see settings.TeamLink): a picked team pings whoever's linked
+// to it, and a picked member with no team given is roasted for their
+// linked team. team is "" when neither says, leaving the model to match
+// the member's Discord names itself; an unrecognized typed team is passed
+// through as-is for the same reason.
+func (h *roastHandler) target(ctx context.Context, targetID, teamInput string) (team string, pings []string) {
+	if teamInput != "" {
+		if ref, ok := h.teams.resolve(ctx, teamInput); ok {
+			team = ref.Label
+			pings = h.teams.mgr.Get().DiscordUsersForSleeperUser(ref.OwnerID)
+		} else {
+			team = teamInput
 		}
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2500*time.Millisecond)
-	defer cancel()
-	teams, err := h.teamNames(ctx)
-	if err != nil {
-		log.Printf("discordbot: /%s team autocomplete: %v", roastCommandName, err)
-	}
-
-	matches := filterTeams(teams, typed)
-	choices := make([]*discordgo.ApplicationCommandOptionChoice, len(matches))
-	for n, t := range matches {
-		choices[n] = &discordgo.ApplicationCommandOptionChoice{Name: t, Value: t}
-	}
-	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionApplicationCommandAutocompleteResult,
-		Data: &discordgo.InteractionResponseData{Choices: choices},
-	}); err != nil {
-		log.Printf("discordbot: respond to /%s autocomplete: %v", roastCommandName, err)
-	}
-}
-
-// teamNames returns the league's team labels, cached for teamCacheTTL. On a
-// failed refresh it falls back to the last good list, if any.
-func (h *roastHandler) teamNames(ctx context.Context) ([]string, error) {
-	h.teamsMu.Lock()
-	defer h.teamsMu.Unlock()
-	if h.teams != nil && time.Since(h.teamsFetched) < teamCacheTTL {
-		return h.teams, nil
-	}
-	teams, err := h.ai.TeamNames(ctx)
-	if err != nil {
-		return h.teams, err
-	}
-	h.teams, h.teamsFetched = teams, time.Now()
-	return teams, nil
-}
-
-// filterTeams returns the teams containing typed (case-insensitively),
-// capped and trimmed to Discord's autocomplete limits.
-func filterTeams(teams []string, typed string) []string {
-	typed = strings.ToLower(strings.TrimSpace(typed))
-	var out []string
-	for _, t := range teams {
-		if len(out) == maxAutocompleteChoices {
-			break
+	if targetID != "" {
+		if team == "" {
+			team, _ = h.teams.linkedTeam(ctx, targetID)
 		}
-		if typed != "" && !strings.Contains(strings.ToLower(t), typed) {
-			continue
+		if !slices.Contains(pings, targetID) {
+			pings = append([]string{targetID}, pings...)
 		}
-		if r := []rune(t); len(r) > maxChoiceLen {
-			t = string(r[:maxChoiceLen])
-		}
-		out = append(out, t)
 	}
-	return out
+	return team, pings
 }
 
 // targetNames collects the distinct names the /roast target goes by in

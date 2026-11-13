@@ -66,13 +66,15 @@ Discord slash commands).
 ## Web Portal
 
 Set `PORTAL_PASSWORD` to turn on a small password-protected web UI for
-changing five things without editing `.env` or restarting the bot:
+changing these without editing `.env` or restarting the bot:
 
 - Turning any individual scheduled message (see the table above) on or off
 - Which day(s) of the week the Waiver Report posts on
 - The timezone used for "league time" messages
 - The AI Weekly Recap's system prompt
 - Whether the bot answers [@mentions](#mention-replies) in Discord
+- Removing [team links](#team-links) (adding them needs Discord's
+  `/settings link`, which can look up server members)
 
 **The portal is entirely off unless `PORTAL_PASSWORD` is set.** `PORTAL_PORT`
 (default `8080`) only picks which port the portal listens on *if* it's
@@ -87,7 +89,8 @@ Anything changed in the portal takes priority over the matching `.env`
 value; anything left alone keeps using its `.env`-derived default (or, for
 settings with no `.env` equivalent, a built-in default). A "Reset
 everything to .env defaults" button on the dashboard clears all overrides
-at once.
+at once. [Team links](#team-links) aren't `.env` overrides, so resets keep
+them.
 
 Settings are persisted to `SETTINGS_FILE` (default `data/settings.json`) so
 they survive a restart — **in Docker this must be on a mounted volume**
@@ -122,7 +125,9 @@ Sleeper's API, so it works just as well fully behind a home network.
 | `/settings timezone value:<zone>` | Set the timezone used for "league time" messages — free text, e.g. `America/Chicago` |
 | `/settings recap-prompt` | Set the AI Weekly Recap's system prompt via the free-text `prompt` option (omit it to just view the current one); capped at 1900 characters — use the web portal for anything longer |
 | `/settings mentions enabled:<true/false>` | Turn [@mention replies](#mention-replies) on or off |
-| `/settings reset` | Reset overrides back to `.env` defaults — `scope` is a dropdown for either everything or just the recap prompt |
+| `/settings link who:<member> team:<team>` | Record which league team a Discord member manages — `team` autocompletes from your Sleeper league. See [Team links](#team-links) |
+| `/settings unlink who:<member>` | Remove a member's team link |
+| `/settings reset` | Reset overrides back to `.env` defaults (team links are kept) — `scope` is a dropdown for either everything or just the recap prompt |
 
 To turn this on:
 
@@ -152,7 +157,8 @@ With both `DISCORD_BOT_TOKEN` and `LLM_API_KEY` set, league members can
 my team cooked?`. Answers are written by the same AI provider as the
 weekly recap, based on a fresh snapshot of the league: standings, streaks,
 head-to-head series, the playoff race, this week's scores, and every
-team's roster with injury designations. Replying to one of the bot's
+team's roster with injury designations. With [team links](#team-links) set
+up, it also knows whose team is whose. Replying to one of the bot's
 answers (with the reply ping left on) asks a follow-up, with the message
 you replied to included as context.
 
@@ -187,17 +193,36 @@ replies](#mention-replies). It needs `DISCORD_BOT_TOKEN` and `LLM_API_KEY`.
 
 | Option | What it does |
 | --- | --- |
-| `who` | The Discord member to roast. They get pinged, and the bot matches their Discord names to a Sleeper manager or team. |
-| `team` | Their league team, picked from an autocomplete list. Use it when someone's Discord name doesn't match their Sleeper name. |
+| `who` | The Discord member to roast. They get pinged, and their [linked team](#team-links) is the one roasted. If they aren't linked, the bot tries to match their Discord names to a Sleeper manager or team. |
+| `team` | The league team to roast, picked from an autocomplete list. Whoever is [linked](#team-links) to it gets pinged. |
 
-Give at least one of the two. If the bot can't tell which team is theirs,
-it says so and keeps the roast general rather than pinning someone else's
-stats on them. It sticks to fantasy football: nothing personal.
+Give at least one of the two. If the bot can't tell which team is the
+target's (no link, and their Discord name doesn't match), it says so and
+keeps the roast general rather than pinning someone else's stats on them. It sticks to fantasy football: nothing personal.
 
 Anyone in the server can run it, and each person can roast once every 20
 seconds (shared with mention replies). It's not a portal setting: to limit
 who can use it, or turn it off, use **Server Settings → Integrations →
 fantasy_bot → /roast** in Discord.
+
+### Team links
+
+Discord and Sleeper names often don't match, so the bot can't always tell
+whose team is whose. An admin can link each league member once with
+`/settings link who:@member team:<team>`. The team picker autocompletes
+from your Sleeper league, and links survive team renames since they're
+stored by Sleeper user rather than team name.
+
+Once someone is linked:
+
+- `/roast who:@them` roasts their team, and `/roast team:<their team>`
+  pings them.
+- @mention answers know the asker's team (so "is my team cooked?" works)
+  and the team of anyone they @mention.
+
+`/settings view` and the web portal list the links. Remove one with
+`/settings unlink` or the portal's checkboxes. A team can be linked to more
+than one member, e.g. co-managers.
 
 ## Running locally
 

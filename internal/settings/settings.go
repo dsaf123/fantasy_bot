@@ -1,7 +1,8 @@
 // Package settings holds the runtime-configurable overrides exposed by the
 // web portal (internal/portal): which scheduled messages are enabled, which
 // day(s) the waiver report posts on, the timezone, the AI weekly recap's
-// system prompt, and whether the Discord bot answers @mentions. Anything left unset here falls back to the
+// system prompt, whether the Discord bot answers @mentions, and which
+// Discord member manages which league team. Anything left unset here falls back to the
 // .env-derived config.Config value - see the Effective*/JobIsEnabled
 // methods and DefaultJobEnabled/DefaultWaiverDays, which are the single
 // source of truth for what "unset" resolves to, shared by
@@ -17,6 +18,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -54,6 +56,45 @@ type Settings struct {
 	// when @mentioned (see internal/discordbot). nil means "no override,
 	// use DefaultMentionReplies".
 	MentionReplies *bool `json:"mention_replies,omitempty"`
+
+	// TeamLinks records which league team each Discord member manages,
+	// keyed by Discord user ID, so /roast and @mention replies know whose
+	// team is whose. Unlike every field above it isn't an override of a
+	// .env default but league data, so the "reset" actions keep it (see
+	// KeepLinks).
+	TeamLinks map[string]TeamLink `json:"team_links,omitempty"`
+}
+
+// TeamLink ties one Discord member to the Sleeper user who owns a team in
+// the league. It's keyed by the owner's Sleeper user ID rather than the
+// team name, so renaming a team doesn't break the link. DiscordName and
+// TeamLabel are snapshots taken when linking, for display only (e.g. the
+// portal, which has no Discord or Sleeper access of its own).
+type TeamLink struct {
+	SleeperUserID string `json:"sleeper_user_id"`
+	DiscordName   string `json:"discord_name,omitempty"`
+	TeamLabel     string `json:"team_label,omitempty"`
+}
+
+// KeepLinks returns next with cur's TeamLinks carried over, for the reset
+// actions and the portal's save, which rebuild Settings from scratch but
+// shouldn't throw away team links (see Settings.TeamLinks).
+func KeepLinks(next, cur Settings) Settings {
+	next.TeamLinks = cur.TeamLinks
+	return next
+}
+
+// DiscordUsersForSleeperUser returns the Discord user IDs linked to
+// sleeperUserID's team, sorted, so a team can have co-managers.
+func (s Settings) DiscordUsersForSleeperUser(sleeperUserID string) []string {
+	var ids []string
+	for discordID, l := range s.TeamLinks {
+		if l.SleeperUserID == sleeperUserID {
+			ids = append(ids, discordID)
+		}
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 // JobInfo describes one schedulable message for display in the portal.
@@ -207,7 +248,28 @@ func validate(s Settings) error {
 			return fmt.Errorf("settings: unknown job %q", name)
 		}
 	}
+	for discordID, l := range s.TeamLinks {
+		if !isSnowflake(discordID) {
+			return fmt.Errorf("settings: invalid Discord user ID %q in team links", discordID)
+		}
+		if l.SleeperUserID == "" {
+			return fmt.Errorf("settings: team link for Discord user %s has no Sleeper user", discordID)
+		}
+	}
 	return nil
+}
+
+// isSnowflake reports whether id looks like a Discord ID: all digits.
+func isSnowflake(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, r := range id {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // Manager loads, persists, and serves the current Settings, notifying

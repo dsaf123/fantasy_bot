@@ -1,6 +1,7 @@
 package discordbot
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -45,7 +46,7 @@ func buildCommands() []*discordgo.ApplicationCommand {
 			Description:              "View or change fantasy_bot's runtime settings (same as the web portal)",
 			DefaultMemberPermissions: &defaultMemberPermissions,
 			DMPermission:             &commandsUsableInDMs,
-			Options: []*discordgo.ApplicationCommandOption{
+			Options: append([]*discordgo.ApplicationCommandOption{
 				{
 					Type:        discordgo.ApplicationCommandOptionSubCommand,
 					Name:        "view",
@@ -140,18 +141,19 @@ func buildCommands() []*discordgo.ApplicationCommand {
 						},
 					},
 				},
-			},
+			}, linkCommandOptions()...),
 		},
 		roastCommand(),
 	}
 }
 
 // interactionHandler returns the discordgo handler for every interaction
-// the session receives: /roast (and its team autocomplete) goes to roast,
-// and /settings's subcommands to handleSubcommand, always replying
+// the session receives: team autocomplete goes to teams, /roast to roast,
+// and /settings's subcommands to handleLinkSubcommand or handleSubcommand,
+// always replying
 // ephemerally - these are admin controls, not something that should
 // clutter the channel.
-func interactionHandler(cfg *config.Config, mgr *settings.Manager, roast *roastHandler) func(*discordgo.Session, *discordgo.InteractionCreate) {
+func interactionHandler(cfg *config.Config, mgr *settings.Manager, roast *roastHandler, teams *teamDirectory) func(*discordgo.Session, *discordgo.InteractionCreate) {
 	return func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		switch i.Type {
 		case discordgo.InteractionApplicationCommand, discordgo.InteractionApplicationCommandAutocomplete:
@@ -159,20 +161,30 @@ func interactionHandler(cfg *config.Config, mgr *settings.Manager, roast *roastH
 			return
 		}
 		data := i.ApplicationCommandData()
-		if data.Name == roastCommandName {
-			if i.Type == discordgo.InteractionApplicationCommandAutocomplete {
-				roast.autocomplete(s, i)
-			} else {
-				roast.handle(s, i)
-			}
+		if i.Type == discordgo.InteractionApplicationCommandAutocomplete {
+			// The only autocompleted options are /roast's and /settings
+			// link's "team".
+			teams.autocomplete(s, i)
 			return
 		}
-		if i.Type != discordgo.InteractionApplicationCommand || data.Name != rootCommandName || len(data.Options) == 0 {
+		if data.Name == roastCommandName {
+			roast.handle(s, i)
+			return
+		}
+		if data.Name != rootCommandName || len(data.Options) == 0 {
 			return
 		}
 
 		sub := data.Options[0]
-		content, err := handleSubcommand(cfg, mgr, sub)
+		var content string
+		var err error
+		if linkSubcommands[sub.Name] {
+			ctx, cancel := context.WithTimeout(context.Background(), teamLookupTimeout)
+			content, err = handleLinkSubcommand(ctx, mgr, teams, sub, data.Resolved)
+			cancel()
+		} else {
+			content, err = handleSubcommand(cfg, mgr, sub)
+		}
 		if err != nil {
 			content = "⚠️ " + err.Error()
 		}
@@ -279,7 +291,7 @@ func handleSubcommand(cfg *config.Config, mgr *settings.Manager, sub *discordgo.
 			return "", err
 		}
 		if scope == "all" {
-			return "✅ All settings reset to .env defaults.", nil
+			return "✅ All settings reset to .env defaults (team links kept).", nil
 		}
 		return "✅ Recap prompt reset to default.", nil
 

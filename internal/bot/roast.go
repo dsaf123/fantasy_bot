@@ -22,8 +22,8 @@ Guidelines:
 - Use Discord markdown sparingly (bold is fine). Don't use headings, code blocks, or @mentions.`
 
 // Roast writes a roast of a league member's fantasy team for the /roast
-// Discord command. team is a league team as offered by TeamNames (may be
-// empty); targetNames are the Discord names (server nickname, display
+// Discord command. team is a league team label as offered by Teams (may
+// be empty); targetNames are the Discord names (server nickname, display
 // name, username) of the member being roasted (may be empty, but not both
 // at once); requester is the Discord display name of whoever asked.
 //
@@ -61,11 +61,11 @@ func buildRoastPrompt(requester string, targetNames []string, team, leagueData s
 	return p.String()
 }
 
-// TeamNames lists every team in the league as "Team Name (manager)" - or
-// just the team name when it's already the manager's name - for /roast's
-// team autocomplete. It only needs rosters and users, so it stays fast
-// enough for Discord's 3-second autocomplete deadline.
-func (b *Bot) TeamNames(ctx context.Context) ([]string, error) {
+// Teams lists every owned team in the league (see report.Teams), for
+// /roast's team autocomplete and /settings link. It only needs rosters and
+// users, so it stays fast enough for Discord's 3-second autocomplete
+// deadline.
+func (b *Bot) Teams(ctx context.Context) ([]report.TeamRef, error) {
 	rosters, err := b.sleeper.GetRosters(ctx, b.cfg.LeagueID)
 	if err != nil {
 		return nil, fmt.Errorf("bot: fetch rosters: %w", err)
@@ -74,5 +74,5 @@ func (b *Bot) TeamNames(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("bot: fetch users: %w", err)
 	}
-	return report.TeamLabels(rosters, users), nil
+	return report.Teams(rosters, users), nil
 }

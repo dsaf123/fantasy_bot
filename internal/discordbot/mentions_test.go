@@ -20,14 +20,20 @@ func TestCleanQuestion(t *testing.T) {
 	}{
 		{"strips bot mention", "<@100> who's in first?", "who's in first?"},
 		{"strips legacy nick mention", "<@!100>   who's in first?", "who's in first?"},
-		{"mention mid-sentence", "hey <@100> is <@200> cooked?", "hey is @Bobby cooked?"},
+		{"mention mid-sentence", "hey <@100> is <@200> cooked?", "hey is @Bobby (team: Bob's Burgers) cooked?"},
 		{"drops role mentions", "<@&555> who's in first?", "who's in first?"},
 		{"unknown user mention left as-is", "<@100> what about <@999>?", "what about <@999>?"},
 		{"only a mention", "<@100>", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := cleanQuestion(tt.in, "100", mentions); got != tt.want {
+			teamOf := func(id string) string {
+				if id == "200" {
+					return "Bob's Burgers"
+				}
+				return ""
+			}
+			if got := cleanQuestion(tt.in, "100", mentions, teamOf); got != tt.want {
 				t.Errorf("cleanQuestion(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})

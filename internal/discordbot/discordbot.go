@@ -47,8 +47,9 @@ func Serve(ctx context.Context, cfg *config.Config, mgr *settings.Manager, ai Le
 	// that pings the bot) - see mentions.go for the role-mention caveat.
 	session.Identify.Intents = discordgo.IntentsGuildMessages
 	cool := newCooldowns(aiCooldown)
-	session.AddHandler(interactionHandler(cfg, mgr, newRoastHandler(ai, cool)))
-	session.AddHandler(newMentionHandler(cfg, mgr, ai, cool).handle)
+	teams := newTeamDirectory(ai, mgr)
+	session.AddHandler(interactionHandler(cfg, mgr, newRoastHandler(ai, cool, teams), teams))
+	session.AddHandler(newMentionHandler(cfg, mgr, ai, cool, teams).handle)
 
 	if err := session.Open(); err != nil {
 		return fmt.Errorf("discordbot: connect: %w", err)

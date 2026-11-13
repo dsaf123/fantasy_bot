@@ -251,3 +251,32 @@ func TestMentionRepliesDefaultAndOverride(t *testing.T) {
 		t.Error("unset override should fall back to default")
 	}
 }
+
+func TestTeamLinksValidationAndLookup(t *testing.T) {
+	dir := t.TempDir()
+	m, err := Load(dir + "/settings.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Save(Settings{TeamLinks: map[string]TeamLink{"not-a-snowflake": {SleeperUserID: "u1"}}}); err == nil {
+		t.Error("expected a non-numeric Discord ID to be rejected")
+	}
+	if err := m.Save(Settings{TeamLinks: map[string]TeamLink{"123": {}}}); err == nil {
+		t.Error("expected a link with no Sleeper user to be rejected")
+	}
+
+	s := Settings{TeamLinks: map[string]TeamLink{
+		"300": {SleeperUserID: "u1"},
+		"100": {SleeperUserID: "u1"},
+		"200": {SleeperUserID: "u2"},
+	}}
+	if got := s.DiscordUsersForSleeperUser("u1"); len(got) != 2 || got[0] != "100" || got[1] != "300" {
+		t.Errorf("DiscordUsersForSleeperUser(u1) = %v, want [100 300]", got)
+	}
+	if got := s.DiscordUsersForSleeperUser("nobody"); got != nil {
+		t.Errorf("unknown owner = %v, want nil", got)
+	}
+	if kept := KeepLinks(Settings{}, s); len(kept.TeamLinks) != 3 {
+		t.Errorf("KeepLinks lost links: %v", kept.TeamLinks)
+	}
+}

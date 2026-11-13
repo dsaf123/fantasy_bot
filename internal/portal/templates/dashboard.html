@@ -75,6 +75,24 @@
         </div>
       </div>
 
+      <div class="card">
+        <h2>Team links</h2>
+        {{if .TeamLinks}}
+        {{range .TeamLinks}}
+        <div class="job-row">
+          <input type="checkbox" id="unlink_{{.DiscordID}}" name="unlink_{{.DiscordID}}">
+          <div>
+            <label class="job-label" for="unlink_{{.DiscordID}}">{{.DiscordName}} → {{.TeamLabel}}</label>
+          </div>
+        </div>
+        {{end}}
+        <div class="hint">Tick a link and save to remove it. Team names are as of when each link was made.</div>
+        {{else}}
+        <div class="hint">No links yet.</div>
+        {{end}}
+        <div class="hint">Which Discord member manages which league team, so /roast pings the right person and the bot knows whose team is whose. Add links from Discord with <code>/settings link</code>. Resets keep links.</div>
+      </div>
+
       <div class="actions">
         <button type="submit" name="action" value="save" class="primary">Save changes</button>
         <button type="submit" name="action" value="reset_prompt">Reset recap prompt only</button>

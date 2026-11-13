@@ -12,7 +12,7 @@ import (
 // so it lives here next to its only user.
 const chatSystemPrompt = `You are the Discord bot for a fantasy football league on Sleeper. League members @mention you in the league's Discord to ask questions, talk trash, or ask for your take, and you reply in the channel.
 
-You'll be given the question, who asked it (their Discord display name, which may or may not match a Sleeper manager or team name - if it clearly matches one, treat that team as theirs), and a snapshot of league data: standings, streaks, head-to-head series, the playoff race, this week's scores, and every team's roster with injury designations.
+You'll be given the question, who asked it (their Discord display name, plus their team if they've linked one - otherwise, if their name clearly matches a Sleeper manager or team name, treat that team as theirs), any Discord members they mention (with those members' teams when linked), and a snapshot of league data: standings, streaks, head-to-head series, the playoff race, this week's scores, and every team's roster with injury designations.
 
 Guidelines:
 - Keep it short: a few sentences, under ~150 words unless the question genuinely needs more (e.g. a list).
@@ -29,14 +29,15 @@ const (
 
 // Answer replies to a free-form question about the league, for when someone
 // @mentions the Discord bot (see internal/discordbot). asker is the
-// Discord display name of whoever asked; replyingTo, if non-empty, is the
+// Discord display name of whoever asked, and askerTeam the label of the
+// league team they're linked to (see settings.TeamLink), if any; replyingTo, if non-empty, is the
 // text of the message they replied to (usually an earlier bot answer),
 // giving the model just enough context for a follow-up question.
 //
 // Situations the bot can't help with (no LLM configured, offseason) come
 // back as a friendly explanation with a nil error, since they should be
 // shown to the asker as-is; a non-nil error means something actually broke.
-func (b *Bot) Answer(ctx context.Context, asker, question, replyingTo string) (string, error) {
+func (b *Bot) Answer(ctx context.Context, asker, askerTeam, question, replyingTo string) (string, error) {
 	if b.llm == nil {
 		return noLLMReply, nil
 	}
@@ -45,7 +46,7 @@ func (b *Bot) Answer(ctx context.Context, asker, question, replyingTo string) (s
 		return unavailable, err
 	}
 
-	userPrompt := buildChatPrompt(asker, question, replyingTo, data)
+	userPrompt := buildChatPrompt(asker, askerTeam, question, replyingTo, data)
 	answer, err := b.llm.Generate(ctx, chatSystemPrompt, userPrompt)
 	if err != nil {
 		return "", fmt.Errorf("bot: answer question: %w", err)
@@ -100,9 +101,12 @@ func (b *Bot) leagueSnapshot(ctx context.Context) (data, unavailable string, err
 // buildChatPrompt assembles Answer's user prompt. The question goes first
 // and the (much longer) league data last, clearly fenced, so the model
 // can't confuse data with instructions or lose the question in the noise.
-func buildChatPrompt(asker, question, replyingTo, leagueData string) string {
+func buildChatPrompt(asker, askerTeam, question, replyingTo, leagueData string) string {
 	var p strings.Builder
 	fmt.Fprintf(&p, "Asked by: %s\n", asker)
+	if askerTeam != "" {
+		fmt.Fprintf(&p, "Their team: %s\n", askerTeam)
+	}
 	if replyingTo = strings.TrimSpace(replyingTo); replyingTo != "" {
 		fmt.Fprintf(&p, "They're replying to this earlier message:\n%s\n\n", truncateRunes(replyingTo, maxReplyContextLen))
 	}

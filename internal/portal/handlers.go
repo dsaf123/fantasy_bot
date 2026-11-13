@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -65,6 +66,14 @@ type dashboardData struct {
 
 	MentionReplies           bool
 	MentionRepliesIsOverride bool
+
+	TeamLinks []linkRow
+}
+
+type linkRow struct {
+	DiscordID   string
+	DiscordName string
+	TeamLabel   string
 }
 
 func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
@@ -123,15 +132,20 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request, sess
 		return
 	}
 
+	// Team links are league data rather than overrides, so they survive
+	// both resets; a save keeps every link not ticked for removal. Adding a
+	// link needs Discord (/settings link), which can resolve members.
+	cur := s.mgr.Get()
 	var next settings.Settings
 	switch action := r.FormValue("action"); action {
 	case "reset_all":
-		next = settings.Settings{}
+		next = settings.KeepLinks(settings.Settings{}, cur)
 	case "reset_prompt":
-		next = s.mgr.Get()
+		next = cur
 		next.RecapPrompt = nil
 	case "save":
 		next = settingsFromForm(r, s.cfg)
+		next.TeamLinks = linksAfterRemovals(r, cur.TeamLinks)
 	default:
 		http.Error(w, "unknown action", http.StatusBadRequest)
 		return
@@ -194,6 +208,21 @@ func settingsFromForm(r *http.Request, cfg *config.Config) settings.Settings {
 	return next
 }
 
+// linksAfterRemovals returns cur minus any link whose "unlink_<discord
+// user ID>" checkbox was ticked on the dashboard form.
+func linksAfterRemovals(r *http.Request, cur map[string]settings.TeamLink) map[string]settings.TeamLink {
+	next := make(map[string]settings.TeamLink, len(cur))
+	for id, l := range cur {
+		if r.FormValue("unlink_"+id) == "" {
+			next[id] = l
+		}
+	}
+	if len(next) == 0 {
+		return nil
+	}
+	return next
+}
+
 // buildDashboardData computes what the dashboard template needs from cur
 // (either the persisted settings, for a normal page load, or a
 // just-submitted-but-rejected snapshot, so a validation error preserves
@@ -223,6 +252,12 @@ func (s *Server) buildDashboardData(cur settings.Settings, csrfToken, errMsg str
 		days[d] = dayRow{Value: d, Label: weekdayLabels[d], Checked: effectiveSet[d]}
 	}
 
+	links := make([]linkRow, 0, len(cur.TeamLinks))
+	for id, l := range cur.TeamLinks {
+		links = append(links, linkRow{DiscordID: id, DiscordName: l.DiscordName, TeamLabel: l.TeamLabel})
+	}
+	sort.Slice(links, func(i, j int) bool { return links[i].DiscordName < links[j].DiscordName })
+
 	return dashboardData{
 		CSRFToken: csrfToken,
 		Error:     errMsg,
@@ -243,6 +278,8 @@ func (s *Server) buildDashboardData(cur settings.Settings, csrfToken, errMsg str
 
 		MentionReplies:           cur.MentionRepliesEnabled(settings.DefaultMentionReplies(cfg)),
 		MentionRepliesIsOverride: cur.MentionReplies != nil,
+
+		TeamLinks: links,
 	}
 }
 

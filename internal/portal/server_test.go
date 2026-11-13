@@ -344,3 +344,57 @@ func TestSaveSettingsMentionRepliesOverride(t *testing.T) {
 		t.Error("expected the override badge on the mention replies label")
 	}
 }
+
+// TestTeamLinksSurviveSaveAndReset checks the portal's team-links card:
+// links are listed, an ordinary save or reset keeps them, and ticking a
+// link's checkbox removes just that one.
+func TestTeamLinksSurviveSaveAndReset(t *testing.T) {
+	srv, client, mgr, cfg := newTestServer(t)
+	if err := mgr.Save(settings.Settings{TeamLinks: map[string]settings.TeamLink{
+		"111": {SleeperUserID: "u1", DiscordName: "Alice", TeamLabel: "Gridiron Gang"},
+		"222": {SleeperUserID: "u2", DiscordName: "Bob", TeamLabel: "Bob's Burgers"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	token := csrfToken(t, srv, client)
+
+	post := func(extra url.Values) {
+		t.Helper()
+		form := url.Values{"csrf_token": {token}, "timezone": {cfg.Timezone}, "waiver_day_3": {"on"}}
+		for k, v := range extra {
+			form[k] = v
+		}
+		resp, err := client.PostForm(srv.URL+"/settings", form)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusSeeOther {
+			t.Fatalf("POST %v status = %d, want 303", extra, resp.StatusCode)
+		}
+	}
+
+	dash, err := client.Get(srv.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(dash.Body)
+	dash.Body.Close()
+	if !strings.Contains(string(body), "Alice → Gridiron Gang") || !strings.Contains(string(body), "Bob → Bob&#39;s Burgers") {
+		t.Errorf("dashboard doesn't list both links")
+	}
+
+	post(url.Values{"action": {"save"}})
+	if n := len(mgr.Get().TeamLinks); n != 2 {
+		t.Fatalf("after plain save, %d links, want 2", n)
+	}
+	post(url.Values{"action": {"reset_all"}})
+	if n := len(mgr.Get().TeamLinks); n != 2 {
+		t.Fatalf("after reset_all, %d links, want 2", n)
+	}
+	post(url.Values{"action": {"save"}, "unlink_222": {"on"}})
+	links := mgr.Get().TeamLinks
+	if _, ok := links["222"]; ok || len(links) != 1 {
+		t.Errorf("after unlinking Bob, links = %v, want only Alice", links)
+	}
+}
