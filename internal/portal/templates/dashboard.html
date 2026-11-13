@@ -64,6 +64,17 @@
         </div>
       </div>
 
+      <div class="card">
+        <h2>Chat replies</h2>
+        <div class="job-row">
+          <input type="checkbox" id="mention_replies" name="mention_replies" {{if .MentionReplies}}checked{{end}}>
+          <div>
+            <label class="job-label" for="mention_replies">Answer @mentions{{if .MentionRepliesIsOverride}}<span class="override-badge">override</span>{{end}}</label>
+            <div class="job-desc">When someone @mentions the bot in Discord, reply with an AI-written answer about the league. Requires LLM_API_KEY and DISCORD_BOT_TOKEN in .env.</div>
+          </div>
+        </div>
+      </div>
+
       <div class="actions">
         <button type="submit" name="action" value="save" class="primary">Save changes</button>
         <button type="submit" name="action" value="reset_prompt">Reset recap prompt only</button>

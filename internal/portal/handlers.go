@@ -62,6 +62,9 @@ type dashboardData struct {
 
 	RecapPrompt           string
 	RecapPromptIsOverride bool
+
+	MentionReplies           bool
+	MentionRepliesIsOverride bool
 }
 
 func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
@@ -184,6 +187,10 @@ func settingsFromForm(r *http.Request, cfg *config.Config) settings.Settings {
 		next.RecapPrompt = &prompt
 	}
 
+	if mention := r.FormValue("mention_replies") != ""; mention != settings.DefaultMentionReplies(cfg) {
+		next.MentionReplies = &mention
+	}
+
 	return next
 }
 
@@ -233,6 +240,9 @@ func (s *Server) buildDashboardData(cur settings.Settings, csrfToken, errMsg str
 
 		RecapPrompt:           cur.EffectiveRecapPrompt(settings.DefaultRecapPrompt),
 		RecapPromptIsOverride: cur.RecapPrompt != nil,
+
+		MentionReplies:           cur.MentionRepliesEnabled(settings.DefaultMentionReplies(cfg)),
+		MentionRepliesIsOverride: cur.MentionReplies != nil,
 	}
 }
 

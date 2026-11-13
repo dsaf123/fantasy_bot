@@ -301,3 +301,46 @@ func TestResetAllRestoresEnvDefaults(t *testing.T) {
 		t.Errorf("Timezone = %v after reset_all, want nil", got.Timezone)
 	}
 }
+
+// TestSaveSettingsMentionRepliesOverride checks the "Answer @mentions"
+// checkbox: checking it with no LLM key (default off) stores an override and
+// shows its badge.
+func TestSaveSettingsMentionRepliesOverride(t *testing.T) {
+	srv, client, mgr, cfg := newTestServer(t)
+	token := csrfToken(t, srv, client)
+
+	form := url.Values{
+		"csrf_token":      {token},
+		"action":          {"save"},
+		"timezone":        {cfg.Timezone},
+		"waiver_day_3":    {"on"},
+		"mention_replies": {"on"},
+	}
+	for _, j := range settings.Jobs {
+		if settings.DefaultJobEnabled(j.Name, cfg) {
+			form.Set("job_"+j.Name, "on")
+		}
+	}
+	resp, err := client.PostForm(srv.URL+"/settings", form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	if got := mgr.Get().MentionReplies; got == nil || !*got {
+		t.Fatalf("MentionReplies = %v, want override true", got)
+	}
+
+	dash, err := client.Get(srv.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dash.Body.Close()
+	body, _ := io.ReadAll(dash.Body)
+	if !strings.Contains(string(body), `name="mention_replies" checked`) {
+		t.Error("expected the mention replies checkbox to render checked")
+	}
+	if !strings.Contains(string(body), `Answer @mentions<span class="override-badge">override</span>`) {
+		t.Error("expected the override badge on the mention replies label")
+	}
+}

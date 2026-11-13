@@ -68,17 +68,17 @@ func main() {
 		log.Printf("portal: PORTAL_PASSWORD not set, portal disabled")
 	}
 
-	// The Discord slash-command config UI is likewise supplementary: a
-	// failure to connect (bad token, network issue) is logged rather than
-	// fatal.
+	// The Discord bot (/settings slash command and @mention replies) is
+	// likewise supplementary: a failure to connect (bad token, network
+	// issue) is logged rather than fatal.
 	if cfg.DiscordBotToken != "" {
 		go func() {
-			if err := discordbot.Serve(ctx, cfg, mgr); err != nil {
+			if err := discordbot.Serve(ctx, cfg, mgr, b); err != nil {
 				log.Printf("discordbot: %v", err)
 			}
 		}()
 	} else {
-		log.Printf("discordbot: DISCORD_BOT_TOKEN not set, slash commands disabled")
+		log.Printf("discordbot: DISCORD_BOT_TOKEN not set, slash commands and @mention replies disabled")
 	}
 
 	if err := scheduler.Run(ctx, cfg, mgr, b); err != nil {

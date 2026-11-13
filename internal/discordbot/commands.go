@@ -111,6 +111,19 @@ func buildCommands() []*discordgo.ApplicationCommand {
 				},
 				{
 					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "mentions",
+					Description: "Turn AI replies to @mentions of the bot on or off",
+					Options: []*discordgo.ApplicationCommandOption{
+						{
+							Type:        discordgo.ApplicationCommandOptionBoolean,
+							Name:        "enabled",
+							Description: "Answer questions when someone @mentions the bot?",
+							Required:    true,
+						},
+					},
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
 					Name:        "reset",
 					Description: "Reset overrides back to .env defaults",
 					Options: []*discordgo.ApplicationCommandOption{
@@ -228,6 +241,20 @@ func handleSubcommand(cfg *config.Config, mgr *settings.Manager, sub *discordgo.
 			return "", err
 		}
 		return "✅ Recap prompt updated.", nil
+
+	case "mentions":
+		enabled := opts["enabled"].BoolValue()
+		if err := mgr.Save(applyMentionReplies(mgr.Get(), enabled, cfg)); err != nil {
+			return "", err
+		}
+		if !enabled {
+			return "✅ @mention replies are now **disabled**.", nil
+		}
+		msg := "✅ @mention replies are now **enabled**."
+		if cfg.LLM.APIKey == "" {
+			msg += " ⚠️ No LLM_API_KEY is set in .env, so the bot can't write answers until one is."
+		}
+		return msg, nil
 
 	case "reset":
 		scope := opts["scope"].StringValue()

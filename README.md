@@ -66,12 +66,13 @@ Discord slash commands).
 ## Web Portal
 
 Set `PORTAL_PASSWORD` to turn on a small password-protected web UI for
-changing four things without editing `.env` or restarting the bot:
+changing five things without editing `.env` or restarting the bot:
 
 - Turning any individual scheduled message (see the table above) on or off
 - Which day(s) of the week the Waiver Report posts on
 - The timezone used for "league time" messages
 - The AI Weekly Recap's system prompt
+- Whether the bot answers [@mentions](#mention-replies) in Discord
 
 **The portal is entirely off unless `PORTAL_PASSWORD` is set.** `PORTAL_PORT`
 (default `8080`) only picks which port the portal listens on *if* it's
@@ -120,6 +121,7 @@ Sleeper's API, so it works just as well fully behind a home network.
 | `/settings waiver-days days:<list>` | Set which day(s) the Waiver Report posts — free text, e.g. `wed`, `sun,wed,fri`, `all`, or `none` |
 | `/settings timezone value:<zone>` | Set the timezone used for "league time" messages — free text, e.g. `America/Chicago` |
 | `/settings recap-prompt` | Set the AI Weekly Recap's system prompt via the free-text `prompt` option (omit it to just view the current one); capped at 1900 characters — use the web portal for anything longer |
+| `/settings mentions enabled:<true/false>` | Turn [@mention replies](#mention-replies) on or off |
 | `/settings reset` | Reset overrides back to `.env` defaults — `scope` is a dropdown for either everything or just the recap prompt |
 
 To turn this on:
@@ -127,16 +129,51 @@ To turn this on:
 1. Create a bot user at the [Discord Developer Portal](https://discord.com/developers/applications)
    (**New Application**, then **Bot** → **Reset Token** to get its token).
 2. Under **OAuth2 → URL Generator**, check the **bot** and
-   **applications.commands** scopes (no individual bot permissions need to
-   be checked — access is controlled by "Manage Server" instead), then open
-   the generated URL to invite it to your server.
+   **applications.commands** scopes, then open the generated URL to invite
+   it to your server. `/settings` itself needs no bot permissions (access is
+   controlled by "Manage Server" instead), but for [mention
+   replies](#mention-replies) also check **Send Messages**, **Read Message
+   History**, and **Add Reactions** under Bot Permissions.
 3. Set `DISCORD_BOT_TOKEN` to the token from step 1. `DISCORD_GUILD_ID`
    (your server's ID) is optional — without it, new/changed commands can
    take up to an hour to appear (Discord's global-command propagation
    delay); with it, they show up within seconds.
 4. Restart the bot. It logs `discordbot: connected as ..., /settings
    registered ...` once it's up, or `discordbot: DISCORD_BOT_TOKEN not set,
-   slash commands disabled` if the token is missing.
+   slash commands and @mention replies disabled` if the token is missing.
+
+### Mention replies
+
+With both `DISCORD_BOT_TOKEN` and `LLM_API_KEY` set, league members can
+@mention the bot with a question and it replies in the channel, e.g.
+`@fantasy_bot who has the toughest playoff schedule?` or `@fantasy_bot is
+my team cooked?`. Answers are written by the same AI provider as the
+weekly recap, based on a fresh snapshot of the league: standings, streaks,
+head-to-head series, the playoff race, this week's scores, and every
+team's roster with injury designations. Replying to one of the bot's
+answers (with the reply ping left on) asks a follow-up, with the message
+you replied to included as context.
+
+- It's on by default whenever `LLM_API_KEY` is set; turn it off from the
+  web portal's "Chat replies" card or `/settings mentions enabled:false`.
+- Each person can ask once every 20 seconds; extra questions in that window
+  get a ⏳ reaction instead of an answer. Every answer is one LLM call.
+- It only answers in servers (not DMs), never pings anyone but the person
+  who asked, and ignores other bots — including the report webhook.
+- Replies come from the bot user rather than the report webhook. To make
+  them look like the same bot, give the bot application (Developer Portal →
+  **Bot**) the same name and avatar as your webhook.
+- The bot needs **Send Messages** and **Read Message History** in the
+  channel (plus **Add Reactions** for the ⏳). If you invited it before
+  this feature existed, it may not have them: re-invite it with those
+  permissions checked, or grant them to its role in the channel or server
+  settings. It doesn't need the
+  privileged Message Content intent: Discord always shares a message's text
+  with a bot that's @mentioned in it.
+- When typing `@`, pick the bot itself from the members list rather than
+  its same-named role. Role mentions are recognized, but Discord may hide
+  the message text from the bot, in which case it replies asking you to
+  mention it again.
 
 ## Running locally
 

@@ -1,6 +1,8 @@
 // Package discordbot lets server admins view and change fantasy_bot's
 // portal-configurable settings (see internal/settings) from a Discord slash
-// command, as a chat-native alternative to internal/portal's web dashboard.
+// command, as a chat-native alternative to internal/portal's web dashboard,
+// and answers league questions when someone @mentions the bot (see
+// mentions.go).
 //
 // It connects as a real bot (gateway + bot token, via
 // github.com/bwmarrin/discordgo) rather than using Discord's HTTP
@@ -22,12 +24,13 @@ import (
 	"fantasy_bot/internal/settings"
 )
 
-// Serve connects to Discord, registers the /settings command, and blocks
-// until ctx is done, then disconnects. Callers should run it in its own
+// Serve connects to Discord, registers the /settings command, starts
+// answering @mentions via answerer, and blocks until ctx is done, then
+// disconnects. Callers should run it in its own
 // goroutine: like internal/portal, this is supplementary to the bot's core
 // scheduling function, so a failure here (bad token, network issue) should
 // be logged by the caller rather than treated as fatal.
-func Serve(ctx context.Context, cfg *config.Config, mgr *settings.Manager) error {
+func Serve(ctx context.Context, cfg *config.Config, mgr *settings.Manager, answerer Answerer) error {
 	if cfg.DiscordBotToken == "" {
 		return fmt.Errorf("discordbot: DISCORD_BOT_TOKEN is not set, refusing to start")
 	}
@@ -37,9 +40,13 @@ func Serve(ctx context.Context, cfg *config.Config, mgr *settings.Manager) error
 		return fmt.Errorf("discordbot: create session: %w", err)
 	}
 	// Interaction events are delivered over the gateway regardless of
-	// intents, and this bot never needs to observe guild or message events.
-	session.Identify.Intents = discordgo.IntentsNone
+	// intents; GuildMessages is only for noticing @mentions. That doesn't
+	// need the privileged Message Content intent: Discord always includes a
+	// message's content for bots it mentions by user (including a reply
+	// that pings the bot) - see mentions.go for the role-mention caveat.
+	session.Identify.Intents = discordgo.IntentsGuildMessages
 	session.AddHandler(interactionHandler(cfg, mgr))
+	session.AddHandler(newMentionHandler(cfg, mgr, answerer).handle)
 
 	if err := session.Open(); err != nil {
 		return fmt.Errorf("discordbot: connect: %w", err)

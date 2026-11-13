@@ -92,6 +92,11 @@ func buildView(cfg *config.Config, cur settings.Settings) string {
 	fmt.Fprintf(&b, "**Timezone:** %s%s\n", cur.EffectiveTimezone(cfg.Timezone), overrideNote(cur.Timezone != nil))
 	fmt.Fprintf(&b, "**Waiver report days:** %s%s\n", formatWaiverDays(cur.EffectiveWaiverDays(settings.DefaultWaiverDays(cfg))), overrideNote(cur.WaiverDays != nil))
 	fmt.Fprintf(&b, "**Recap prompt:** %s%s\n", truncate(cur.EffectiveRecapPrompt(settings.DefaultRecapPrompt), 150), overrideNote(cur.RecapPrompt != nil))
+	mentions := "off"
+	if cur.MentionRepliesEnabled(settings.DefaultMentionReplies(cfg)) {
+		mentions = "on"
+	}
+	fmt.Fprintf(&b, "**@mention replies:** %s%s\n", mentions, overrideNote(cur.MentionReplies != nil))
 
 	b.WriteString("\n**Scheduled messages:**\n")
 	for _, j := range settings.Jobs {
@@ -179,6 +184,18 @@ func applyRecapPrompt(cur settings.Settings, prompt string) settings.Settings {
 		next.RecapPrompt = nil
 	} else {
 		next.RecapPrompt = &prompt
+	}
+	return next
+}
+
+// applyMentionReplies sets cur's @mention-replies override, clearing it
+// instead if enabled matches cfg's default (see applyJobToggle).
+func applyMentionReplies(cur settings.Settings, enabled bool, cfg *config.Config) settings.Settings {
+	next := cur
+	if enabled == settings.DefaultMentionReplies(cfg) {
+		next.MentionReplies = nil
+	} else {
+		next.MentionReplies = &enabled
 	}
 	return next
 }

@@ -231,3 +231,23 @@ func TestDefaultWaiverDays(t *testing.T) {
 		t.Errorf("DefaultWaiverDays(true) = %v, want all 7 days", got)
 	}
 }
+
+func TestMentionRepliesDefaultAndOverride(t *testing.T) {
+	noLLM := &config.Config{}
+	withLLM := &config.Config{LLM: config.LLMConfig{APIKey: "key"}}
+	if DefaultMentionReplies(noLLM) {
+		t.Error("mention replies should default off with no LLM API key")
+	}
+	if !DefaultMentionReplies(withLLM) {
+		t.Error("mention replies should default on when an LLM API key is set")
+	}
+
+	off := false
+	s := Settings{MentionReplies: &off}
+	if s.MentionRepliesEnabled(true) {
+		t.Error("explicit override (false) should win over default (true)")
+	}
+	if !(Settings{}).MentionRepliesEnabled(true) {
+		t.Error("unset override should fall back to default")
+	}
+}

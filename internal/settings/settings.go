@@ -1,7 +1,7 @@
 // Package settings holds the runtime-configurable overrides exposed by the
 // web portal (internal/portal): which scheduled messages are enabled, which
-// day(s) the waiver report posts on, the timezone, and the AI weekly
-// recap's system prompt. Anything left unset here falls back to the
+// day(s) the waiver report posts on, the timezone, the AI weekly recap's
+// system prompt, and whether the Discord bot answers @mentions. Anything left unset here falls back to the
 // .env-derived config.Config value - see the Effective*/JobIsEnabled
 // methods and DefaultJobEnabled/DefaultWaiverDays, which are the single
 // source of truth for what "unset" resolves to, shared by
@@ -49,6 +49,11 @@ type Settings struct {
 
 	// RecapPrompt overrides the AI weekly recap's system prompt.
 	RecapPrompt *string `json:"recap_prompt,omitempty"`
+
+	// MentionReplies overrides whether the Discord bot answers questions
+	// when @mentioned (see internal/discordbot). nil means "no override,
+	// use DefaultMentionReplies".
+	MentionReplies *bool `json:"mention_replies,omitempty"`
 }
 
 // JobInfo describes one schedulable message for display in the portal.
@@ -110,6 +115,21 @@ func DefaultJobEnabled(name string, cfg *config.Config) bool {
 	default:
 		return true
 	}
+}
+
+// DefaultMentionReplies reports whether the Discord bot answers @mentions
+// when no portal override is set: on whenever an LLM provider is
+// configured, since that's what writes the answers.
+func DefaultMentionReplies(cfg *config.Config) bool {
+	return cfg.LLM.APIKey != ""
+}
+
+// MentionRepliesEnabled returns the portal override if set, else def.
+func (s Settings) MentionRepliesEnabled(def bool) bool {
+	if s.MentionReplies != nil {
+		return *s.MentionReplies
+	}
+	return def
 }
 
 // DefaultWaiverDays is the weekday set the waiver report posts on when no
