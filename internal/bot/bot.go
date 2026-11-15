@@ -140,6 +140,16 @@ func (b *Bot) Run(ctx context.Context, rt ReportType) error {
 		return b.sender.Send(ctx, b.cfg.InitMessage)
 	}
 
+	if rt == ReportMonitor {
+		// Injury designations change through the weekend (Friday reports,
+		// Saturday downgrades), so don't let the monitor read a player
+		// dictionary cached up to a day ago. Refresh falls back to the
+		// cached copy on error; buildLeagueContext's Get then reuses it.
+		if _, err := b.players.Refresh(ctx); err != nil {
+			log.Printf("bot: refresh players for monitor: %v", err)
+		}
+	}
+
 	leagueCtx, week, err := b.buildLeagueContext(ctx)
 	if err != nil {
 		if errors.Is(err, errSeasonNotStarted) {
@@ -329,7 +339,15 @@ func (b *Bot) Run(ctx context.Context, rt ReportType) error {
 		text = leagueCtx.WaiverReport(txns)
 
 	case ReportMonitor:
-		text = leagueCtx.Monitor()
+		// The schedule is only used to spot starters on bye, so a failed
+		// fetch shouldn't cost managers their injury alerts - post without
+		// bye detection instead.
+		schedule, err := b.schedule(ctx, leagueCtx)
+		if err != nil {
+			log.Printf("bot: monitor posting without bye detection: %v", err)
+			schedule = nil
+		}
+		text = leagueCtx.Monitor(schedule)
 
 	case ReportFinal:
 		finalWeek := week - 1

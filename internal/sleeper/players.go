@@ -33,12 +33,21 @@ func (pc *PlayerCache) Get(ctx context.Context) (map[string]Player, error) {
 	if !stale {
 		return players, nil
 	}
+	return pc.Refresh(ctx)
+}
 
+// Refresh fetches the player dictionary now, regardless of the cache's age,
+// for reports that depend on up-to-the-minute data such as injury
+// designations. If the fetch fails it falls back to the cached copy (when
+// there is one) rather than failing a scheduled report over a transient
+// error.
+func (pc *PlayerCache) Refresh(ctx context.Context) (map[string]Player, error) {
 	fresh, err := pc.client.GetAllPlayers(ctx)
 	if err != nil {
+		pc.mu.RLock()
+		players := pc.players
+		pc.mu.RUnlock()
 		if players != nil {
-			// Serve stale data rather than fail a scheduled report over a
-			// transient fetch error.
 			return players, nil
 		}
 		return nil, err

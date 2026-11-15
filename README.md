@@ -29,7 +29,7 @@ only fire if the noted setting is enabled.
 | Wednesday | 7:31 AM | league | Waiver Report | Completed waiver/free-agent adds and drops with FAAB bids *(daily instead of Wednesday-only if `DAILY_WAIVER=true`)* |
 | Thursday | 7:30 PM | ET | Matchups | Upcoming week's pairings plus each matchup's projected scoreboard |
 | Friday | 7:30 AM | league | Weekday Scoreboard | Current scores plus each matchup's approximate projected final score |
-| Sunday | 7:30 AM | league | Injury Monitor *(optional, `MONITOR_REPORT`, on by default)* | Starters with an injury designation (Questionable, Doubtful, Out, IR, PUP, Suspended), so managers can swap them out before kickoff. Bench and IR slots are ignored |
+| Sunday | 7:30 AM | league | Injury Monitor *(optional, `MONITOR_REPORT`, on by default)* | Starting lineup problems to fix before kickoff: empty slots, starters on bye or without an NFL team, and starters with an injury designation (Questionable, Doubtful, Out, IR, PUP, Suspended). Uses freshly fetched injury data; bench and IR slots are ignored |
 | Sunday | 4:00 PM | ET | Scoreboard | In-progress scores for every matchup |
 | Sunday | 4:00 PM | ET | Close Scores | Matchups still within the close-game threshold (`CLOSE_SCORES_THRESHOLD`, default 15 pts) |
 | Sunday | 8:00 PM | ET | Scoreboard | In-progress scores, evening update |

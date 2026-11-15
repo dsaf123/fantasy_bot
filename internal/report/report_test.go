@@ -362,6 +362,16 @@ func TestWeekdayScoreboardCombinesCurrentAndProjected(t *testing.T) {
 	}
 }
 
+// monitorSchedule has week 1 games for every NFL team used by the monitor
+// tests except CIN, which is on bye.
+func monitorSchedule() []sleeper.ScheduledGame {
+	return []sleeper.ScheduledGame{
+		{Week: 1, Home: "BUF", Away: "KC"},
+		{Week: 1, Home: "LAR", Away: "SF"},
+		{Week: 2, Home: "CIN", Away: "BUF"},
+	}
+}
+
 func TestMonitorOnlyFlagsStarters(t *testing.T) {
 	users := []sleeper.User{
 		{UserID: "u1", Metadata: sleeper.UserMetadata{TeamName: "Kyle's Football Club"}},
@@ -375,15 +385,15 @@ func TestMonitorOnlyFlagsStarters(t *testing.T) {
 		{RosterID: 3, OwnerID: "u3", Starters: []string{"healthy2"}, Players: []string{"healthy2", "benched2"}, Reserve: []string{"ir2"}},
 	}
 	players := map[string]sleeper.Player{
-		"tee":       {FullName: "Tee Higgins", Position: "WR", InjuryStatus: "Questionable"},
-		"healthy":   {FullName: "Healthy Guy", Position: "QB", InjuryStatus: ""},
-		"benched":   {FullName: "Bench Guy", Position: "RB", InjuryStatus: "Out"},
-		"bam":       {FullName: "Bam Knight", Position: "RB", InjuryStatus: "IR"},
-		"suspended": {FullName: "Sus Guy", Position: "WR", InjuryStatus: "Sus"},
-		"kincaid":   {FullName: "Dalton Kincaid", Position: "TE", InjuryStatus: ""},
-		"healthy2":  {FullName: "Healthy Two", Position: "TE", InjuryStatus: ""},
-		"benched2":  {FullName: "Bench Two", Position: "WR", InjuryStatus: "Doubtful"},
-		"ir2":       {FullName: "IR Two", Position: "RB", InjuryStatus: "IR"},
+		"tee":       {FullName: "Tee Higgins", Position: "WR", Team: "KC", InjuryStatus: "Questionable"},
+		"healthy":   {FullName: "Healthy Guy", Position: "QB", Team: "BUF", InjuryStatus: ""},
+		"benched":   {FullName: "Bench Guy", Position: "RB", Team: "BUF", InjuryStatus: "Out"},
+		"bam":       {FullName: "Bam Knight", Position: "RB", Team: "SF", InjuryStatus: "IR"},
+		"suspended": {FullName: "Sus Guy", Position: "WR", Team: "LAR", InjuryStatus: "Sus"},
+		"kincaid":   {FullName: "Dalton Kincaid", Position: "TE", Team: "BUF", InjuryStatus: ""},
+		"healthy2":  {FullName: "Healthy Two", Position: "TE", Team: "KC", InjuryStatus: ""},
+		"benched2":  {FullName: "Bench Two", Position: "WR", Team: "CIN", InjuryStatus: "Doubtful"},
+		"ir2":       {FullName: "IR Two", Position: "RB", Team: "", InjuryStatus: "IR"},
 	}
 	ctx := NewLeagueContext(sleeper.League{}, rosters, users, players, 1)
 
@@ -395,16 +405,59 @@ func TestMonitorOnlyFlagsStarters(t *testing.T) {
 		"RB Bam Knight - Injury Reserve\n" +
 		"WR Sus Guy - Suspended\n" +
 		"\n" +
-		"Update your lineup before kickoff if any of these players are ruled out."
+		monitorFooter[1:]
 
-	if got := ctx.Monitor(); got != want {
+	if got := ctx.Monitor(monitorSchedule()); got != want {
 		t.Errorf("Monitor() = %q, want %q", got, want)
+	}
+}
+
+func TestMonitorFlagsEmptySlotsByesAndReleasedStarters(t *testing.T) {
+	users := []sleeper.User{{UserID: "u1", Metadata: sleeper.UserMetadata{TeamName: "Kyle's Football Club"}}}
+	rosters := []sleeper.Roster{
+		{RosterID: 1, OwnerID: "u1", Starters: []string{"qb", "0", "bye", "cut", "byehurt"}},
+	}
+	players := map[string]sleeper.Player{
+		"qb":  {FullName: "Healthy QB", Position: "QB", Team: "BUF"},
+		"bye": {FullName: "Ja'Marr Chase", Position: "WR", Team: "CIN"},
+		"cut": {FullName: "Released Guy", Position: "RB", Team: ""},
+		// On bye and questionable: the bye is what guarantees the zero.
+		"byehurt": {FullName: "Joe Burrow", Position: "QB", Team: "CIN", InjuryStatus: "Questionable"},
+	}
+	league := sleeper.League{RosterPositions: []string{"QB", "SUPER_FLEX", "WR", "RB", "FLEX", "BN", "BN"}}
+	ctx := NewLeagueContext(league, rosters, users, players, 1)
+
+	want := "Starting Players to Monitor\n" +
+		"Kyle's Football Club: \n" +
+		"SUPER FLEX - Empty slot\n" +
+		"WR Ja'Marr Chase - BYE\n" +
+		"RB Released Guy - No NFL team\n" +
+		"QB Joe Burrow - BYE\n" +
+		monitorFooter
+
+	if got := ctx.Monitor(monitorSchedule()); got != want {
+		t.Errorf("Monitor() = %q, want %q", got, want)
+	}
+}
+
+func TestMonitorWithoutScheduleSkipsByeDetection(t *testing.T) {
+	users := []sleeper.User{{UserID: "u1", DisplayName: "Alice"}}
+	rosters := []sleeper.Roster{{RosterID: 1, OwnerID: "u1", Starters: []string{"chase"}}}
+	players := map[string]sleeper.Player{"chase": {FullName: "Ja'Marr Chase", Position: "WR", Team: "CIN"}}
+	ctx := NewLeagueContext(sleeper.League{}, rosters, users, players, 1)
+
+	// No schedule (failed fetch) or a schedule with no games this week must
+	// not mark every starter as on bye.
+	for _, schedule := range [][]sleeper.ScheduledGame{nil, {{Week: 2, Home: "CIN", Away: "BUF"}}} {
+		if got := ctx.Monitor(schedule); got != NoMonitorIssues {
+			t.Errorf("Monitor(%v) = %q, want %q", schedule, got, NoMonitorIssues)
+		}
 	}
 }
 
 func TestMonitorNoneFlagged(t *testing.T) {
 	ctx := testContext()
-	if got := ctx.Monitor(); got != "No starters flagged with an injury designation." {
+	if got := ctx.Monitor(monitorSchedule()); got != NoMonitorIssues {
 		t.Errorf("Monitor() = %q, want no-flags message", got)
 	}
 }
