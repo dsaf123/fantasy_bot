@@ -5,54 +5,46 @@ import (
 	"strings"
 )
 
-// startersWatchStatuses are injury designations on an active starter worth
-// flagging before kickoff.
+// startersWatchStatuses are injury designations on a player in a starting
+// lineup slot worth flagging before kickoff - either a risk to sit
+// (Questionable/Doubtful) or a guaranteed zero (Out, IR, PUP, suspended).
 var startersWatchStatuses = map[string]bool{
 	"Questionable": true,
 	"Doubtful":     true,
 	"Out":          true,
+	"IR":           true,
+	"PUP":          true,
+	"Sus":          true,
 }
 
-// Monitor lists starters carrying a notable injury designation, plus any
-// player parked in an IR roster slot, so managers can catch lineup problems
-// before kickoff. A reserve player with no current injury designation is
-// flagged as "Not IR eligible" - Sleeper (like most platforms) requires an
-// active qualifying designation to legally occupy an IR slot, so a cleared
-// player left there needs to be moved before the roster locks.
+// monitorFooter nudges managers to act on the flagged starters.
+const monitorFooter = "\nUpdate your lineup before kickoff if any of these players are ruled out."
+
+// Monitor lists players in each team's starting lineup who carry an injury
+// designation, so managers can swap them out before kickoff. Bench and IR
+// slots are ignored - an injured player there doesn't cost any points.
 func (c *LeagueContext) Monitor() string {
 	var b strings.Builder
 	b.WriteString("Starting Players to Monitor\n")
 
 	found := false
-	first := true
 	for _, roster := range c.Rosters {
 		var lines []string
-
 		for _, playerID := range roster.Starters {
 			player, ok := c.Players[playerID]
 			if !ok || !startersWatchStatuses[player.InjuryStatus] {
 				continue
 			}
-			lines = append(lines, fmt.Sprintf("%s %s - %s", player.Position, player.Name(), player.InjuryStatus))
-		}
-
-		for _, playerID := range roster.Reserve {
-			player, ok := c.Players[playerID]
-			if !ok {
-				continue
-			}
-			status := reserveStatusLabel(player.InjuryStatus)
-			lines = append(lines, fmt.Sprintf("%s %s - %s", player.Position, player.Name(), status))
+			lines = append(lines, fmt.Sprintf("%s %s - %s", player.Position, player.Name(), injuryStatusLabel(player.InjuryStatus)))
 		}
 
 		if len(lines) == 0 {
 			continue
 		}
-		found = true
-		if !first {
+		if found {
 			b.WriteString("\n")
 		}
-		first = false
+		found = true
 		b.WriteString(c.TeamName(roster.RosterID) + ": \n")
 		for _, line := range lines {
 			b.WriteString(line + "\n")
@@ -62,18 +54,17 @@ func (c *LeagueContext) Monitor() string {
 	if !found {
 		return "No starters flagged with an injury designation."
 	}
+	b.WriteString(monitorFooter)
 	return b.String()
 }
 
-// reserveStatusLabel describes why a player is sitting in an IR roster slot.
-// A player with no current injury designation no longer qualifies for IR and
-// needs to be moved.
-func reserveStatusLabel(injuryStatus string) string {
-	if injuryStatus == "" {
-		return "Not IR eligible"
-	}
-	if injuryStatus == "IR" {
+// injuryStatusLabel expands Sleeper's abbreviated designations for display.
+func injuryStatusLabel(injuryStatus string) string {
+	switch injuryStatus {
+	case "IR":
 		return "Injury Reserve"
+	case "Sus":
+		return "Suspended"
 	}
 	return injuryStatus
 }

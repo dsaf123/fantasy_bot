@@ -115,7 +115,7 @@ var Jobs = []JobInfo{
 	{"waiver_report", "Waiver Report", "Completed waiver/free-agent adds and drops with FAAB bids. Which day(s) it posts on is configured separately below."},
 	{"matchups", "Matchups", "Thursday 7:30 PM ET — the upcoming week's pairings plus each matchup's projected scoreboard."},
 	{"scoreboard_weekday", "Weekday Scoreboard", "Friday & Monday 7:30 AM league time — current scores plus each matchup's approximate projected final score."},
-	{"monitor", "Injury Monitor", "Sunday 7:30 AM league time — rostered players who are OUT, flagged Doubtful/IR-eligible, or sitting in an IR slot without a qualifying designation."},
+	{"monitor", "Injury Monitor", "Sunday 7:30 AM league time — players in each starting lineup with an injury designation (Questionable, Doubtful, Out, IR, PUP, Suspended), so managers can update their lineup before kickoff. Bench and IR slots are ignored."},
 	{"scoreboard", "Scoreboard", "Sunday 4 PM & 8 PM ET — in-progress scores for every matchup."},
 	{"close_scores", "Close Scores", "Sunday 4 PM & 8 PM ET, and Monday 6:30 PM ET — matchups still within the close-game threshold."},
 	{"final", "Final", "Tuesday 7:30 AM league time — final scores and trophies for the week that just finished."},

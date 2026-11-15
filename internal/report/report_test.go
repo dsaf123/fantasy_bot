@@ -362,19 +362,28 @@ func TestWeekdayScoreboardCombinesCurrentAndProjected(t *testing.T) {
 	}
 }
 
-func TestMonitorGroupsStartersAndReserveByTeam(t *testing.T) {
+func TestMonitorOnlyFlagsStarters(t *testing.T) {
 	users := []sleeper.User{
 		{UserID: "u1", Metadata: sleeper.UserMetadata{TeamName: "Kyle's Football Club"}},
 		{UserID: "u2", Metadata: sleeper.UserMetadata{TeamName: "Andrew's Ass-Kickers"}},
+		{UserID: "u3", Metadata: sleeper.UserMetadata{TeamName: "Bench Warmers"}},
 	}
 	rosters := []sleeper.Roster{
-		{RosterID: 1, OwnerID: "u1", Starters: []string{"tee"}},
-		{RosterID: 2, OwnerID: "u2", Reserve: []string{"bam", "kincaid"}},
+		{RosterID: 1, OwnerID: "u1", Starters: []string{"tee", "healthy"}, Players: []string{"tee", "healthy", "benched"}},
+		{RosterID: 2, OwnerID: "u2", Starters: []string{"bam", "suspended"}, Reserve: []string{"kincaid"}},
+		// Injured players only on the bench / in IR: nothing to fix in the lineup.
+		{RosterID: 3, OwnerID: "u3", Starters: []string{"healthy2"}, Players: []string{"healthy2", "benched2"}, Reserve: []string{"ir2"}},
 	}
 	players := map[string]sleeper.Player{
-		"tee":     {FullName: "Tee Higgins", Position: "WR", InjuryStatus: "Questionable"},
-		"bam":     {FullName: "Bam Knight", Position: "RB", InjuryStatus: "IR"},
-		"kincaid": {FullName: "Dalton Kincaid", Position: "TE", InjuryStatus: ""},
+		"tee":       {FullName: "Tee Higgins", Position: "WR", InjuryStatus: "Questionable"},
+		"healthy":   {FullName: "Healthy Guy", Position: "QB", InjuryStatus: ""},
+		"benched":   {FullName: "Bench Guy", Position: "RB", InjuryStatus: "Out"},
+		"bam":       {FullName: "Bam Knight", Position: "RB", InjuryStatus: "IR"},
+		"suspended": {FullName: "Sus Guy", Position: "WR", InjuryStatus: "Sus"},
+		"kincaid":   {FullName: "Dalton Kincaid", Position: "TE", InjuryStatus: ""},
+		"healthy2":  {FullName: "Healthy Two", Position: "TE", InjuryStatus: ""},
+		"benched2":  {FullName: "Bench Two", Position: "WR", InjuryStatus: "Doubtful"},
+		"ir2":       {FullName: "IR Two", Position: "RB", InjuryStatus: "IR"},
 	}
 	ctx := NewLeagueContext(sleeper.League{}, rosters, users, players, 1)
 
@@ -384,7 +393,9 @@ func TestMonitorGroupsStartersAndReserveByTeam(t *testing.T) {
 		"\n" +
 		"Andrew's Ass-Kickers: \n" +
 		"RB Bam Knight - Injury Reserve\n" +
-		"TE Dalton Kincaid - Not IR eligible\n"
+		"WR Sus Guy - Suspended\n" +
+		"\n" +
+		"Update your lineup before kickoff if any of these players are ruled out."
 
 	if got := ctx.Monitor(); got != want {
 		t.Errorf("Monitor() = %q, want %q", got, want)
