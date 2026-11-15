@@ -10,7 +10,29 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  # Gate the publish on the test suite: the image is tagged `latest`, so a
+  # broken commit would otherwise reach the server on its next pull.
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
   build-and-push:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
