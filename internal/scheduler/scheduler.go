@@ -91,8 +91,12 @@ func buildJobs(cfg *config.Config, s settings.Settings) []jobSpec {
 		add("waiver_report", tz(tzLocal, fmt.Sprintf("31 7 * * %s", joinDays(days))), bot.ReportWaiver)
 	}
 
-	// Sunday 7:30am local: injury/monitor report.
+	// Sunday 7:30am local: injury/monitor report. Then 11:45am ET, after
+	// teams announce inactives (~90 minutes before the 1pm ET kickoffs), a
+	// follow-up that posts only if something new turned up. Both share the
+	// one "monitor" toggle.
 	add("monitor", tz(tzLocal, "30 7 * * 0"), bot.ReportMonitor)
+	add("monitor", tz(gameTimezone, "45 11 * * 0"), bot.ReportMonitorUpdate)
 
 	if cfg.LLM.APIKey != "" {
 		// Tuesday 6:45pm local: the AI weekly recap, after final scores

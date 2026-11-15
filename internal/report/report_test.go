@@ -1,6 +1,7 @@
 package report
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -452,6 +453,46 @@ func TestMonitorWithoutScheduleSkipsByeDetection(t *testing.T) {
 		if got := ctx.Monitor(schedule); got != NoMonitorIssues {
 			t.Errorf("Monitor(%v) = %q, want %q", schedule, got, NoMonitorIssues)
 		}
+	}
+}
+
+func TestMonitorSkipsStartersWhoseGameHasStarted(t *testing.T) {
+	users := []sleeper.User{{UserID: "u1", DisplayName: "Alice"}}
+	rosters := []sleeper.Roster{{RosterID: 1, OwnerID: "u1", Starters: []string{"done", "live", "later", "0"}}}
+	players := map[string]sleeper.Player{
+		"done":  {FullName: "Thursday Guy", Position: "WR", Team: "NYG", InjuryStatus: "Out"},
+		"live":  {FullName: "London Guy", Position: "RB", Team: "JAX", InjuryStatus: "Questionable"},
+		"later": {FullName: "Sunday Guy", Position: "TE", Team: "KC", InjuryStatus: "Doubtful"},
+	}
+	schedule := []sleeper.ScheduledGame{
+		{Week: 1, Home: "NYG", Away: "WAS", Status: "complete"},
+		{Week: 1, Home: "JAX", Away: "TEN", Status: "in_game"},
+		{Week: 1, Home: "KC", Away: "BUF", Status: "pre_game"},
+	}
+	ctx := NewLeagueContext(sleeper.League{}, rosters, users, players, 1)
+
+	want := []MonitorTeam{{RosterID: 1, OwnerID: "u1", Lines: []string{"TE Sunday Guy - Doubtful", "Lineup - Empty slot"}}}
+	if got := ctx.MonitorFlags(schedule); !reflect.DeepEqual(got, want) {
+		t.Errorf("MonitorFlags() = %+v, want %+v", got, want)
+	}
+}
+
+func TestNewMonitorFlags(t *testing.T) {
+	morning := []MonitorTeam{
+		{RosterID: 1, Lines: []string{"WR A - Questionable"}},
+		{RosterID: 2, Lines: []string{"RB B - Questionable", "TE C - Doubtful"}},
+	}
+	current := []MonitorTeam{
+		{RosterID: 1, Lines: []string{"WR A - Questionable"}}, // unchanged
+		{RosterID: 2, Lines: []string{"RB B - Out"}},          // downgraded; C dropped off
+		{RosterID: 3, Lines: []string{"QB D - Out"}},          // newly flagged team
+	}
+	got := NewMonitorFlags(morning, current)
+	if len(got) != 2 || got[0].RosterID != 2 || got[1].RosterID != 3 {
+		t.Errorf("NewMonitorFlags() = %+v, want teams 2 and 3", got)
+	}
+	if got := NewMonitorFlags(current, []MonitorTeam{{RosterID: 2, Lines: []string{"RB B - Out"}}}); len(got) != 0 {
+		t.Errorf("NewMonitorFlags() = %+v, want nothing new when lines only dropped off", got)
 	}
 }
 

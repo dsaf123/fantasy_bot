@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
+	"sync"
 	"time"
 
 	"fantasy_bot/internal/config"
@@ -64,6 +66,11 @@ const (
 	ReportCloseScores   ReportType = "close_scores"
 	ReportWaiver        ReportType = "waiver"
 	ReportMonitor       ReportType = "monitor"
+	// ReportMonitorUpdate re-checks starting lineups shortly before the
+	// Sunday 1 PM ET kickoffs, once inactives are announced, and posts only
+	// if something new turned up since the morning ReportMonitor (see
+	// report.NewMonitorFlags).
+	ReportMonitorUpdate ReportType = "monitor_update"
 	// ReportFinal posts the previous week's final scores plus trophies,
 	// mirroring gamedaybot's Tuesday-morning "get_final" job.
 	ReportFinal ReportType = "final"
@@ -98,6 +105,18 @@ type Bot struct {
 	// the recap prompt), so a portal edit takes effect on the very next run
 	// without needing the scheduler to reload anything.
 	settingsMgr *settings.Manager
+
+	// lastMonitor is what the most recent monitor run flagged, so the
+	// pre-kickoff update can post only what's new. It's in memory only: after
+	// a restart the update just treats everything as new.
+	monitorMu   sync.Mutex
+	lastMonitor monitorSnapshot
+}
+
+// monitorSnapshot is one monitor run's flagged teams for a given week.
+type monitorSnapshot struct {
+	week  int
+	teams []report.MonitorTeam
 }
 
 func New(cfg *config.Config, mgr *settings.Manager) *Bot {
@@ -140,7 +159,7 @@ func (b *Bot) Run(ctx context.Context, rt ReportType) error {
 		return b.sender.Send(ctx, b.cfg.InitMessage)
 	}
 
-	if rt == ReportMonitor {
+	if rt == ReportMonitor || rt == ReportMonitorUpdate {
 		// Injury designations change through the weekend (Friday reports,
 		// Saturday downgrades), so don't let the monitor read a player
 		// dictionary cached up to a day ago. Refresh falls back to the
@@ -338,16 +357,16 @@ func (b *Bot) Run(ctx context.Context, rt ReportType) error {
 		}
 		text = leagueCtx.WaiverReport(txns)
 
-	case ReportMonitor:
-		// The schedule is only used to spot starters on bye, so a failed
-		// fetch shouldn't cost managers their injury alerts - post without
-		// bye detection instead.
+	case ReportMonitor, ReportMonitorUpdate:
+		// The schedule is only used to spot byes and games already under
+		// way, so a failed fetch shouldn't cost managers their injury
+		// alerts - post without those checks instead.
 		schedule, err := b.schedule(ctx, leagueCtx)
 		if err != nil {
-			log.Printf("bot: monitor posting without bye detection: %v", err)
+			log.Printf("bot: monitor posting without bye/kickoff detection: %v", err)
 			schedule = nil
 		}
-		text = leagueCtx.Monitor(schedule)
+		return b.runMonitor(ctx, leagueCtx, schedule, week, rt == ReportMonitorUpdate)
 
 	case ReportFinal:
 		finalWeek := week - 1
@@ -490,4 +509,64 @@ func (b *Bot) buildLeagueContext(ctx context.Context) (*report.LeagueContext, in
 	leagueCtx := report.NewLeagueContext(*league, rosters, users, players, state.Week)
 	leagueCtx.SetAbbreviations(b.cfg.TeamAbbreviations)
 	return leagueCtx, state.Week, nil
+}
+
+// runMonitor posts the starting lineup monitor, followed by a line pinging
+// the Discord members linked to each flagged team (see settings.TeamLinks).
+// The pings go in a separate plain message because mentions inside the
+// report's code block don't notify anyone.
+//
+// The pre-kickoff update (update true) posts only when a team has a flag the
+// previous run this week didn't, and pings only those teams' managers.
+func (b *Bot) runMonitor(ctx context.Context, leagueCtx *report.LeagueContext, schedule []sleeper.ScheduledGame, week int, update bool) error {
+	teams := leagueCtx.MonitorFlags(schedule)
+
+	b.monitorMu.Lock()
+	previous := b.lastMonitor
+	b.lastMonitor = monitorSnapshot{week: week, teams: teams}
+	b.monitorMu.Unlock()
+
+	header, ping := report.MonitorHeader, teams
+	if update {
+		if previous.week == week {
+			ping = report.NewMonitorFlags(previous.teams, teams)
+		}
+		if len(ping) == 0 {
+			log.Printf("bot: monitor update: nothing new since the last run, not posting")
+			return nil
+		}
+		header = report.MonitorUpdateHeader
+	}
+
+	if err := b.sender.Send(ctx, leagueCtx.FormatMonitor(header, teams)); err != nil {
+		return err
+	}
+	if mentions := b.monitorMentions(ping); mentions != "" {
+		return b.sender.SendRich(ctx, mentions)
+	}
+	return nil
+}
+
+// monitorMentions builds a message pinging the Discord members linked to
+// each flagged team, or "" if none of those teams has a linked member.
+func (b *Bot) monitorMentions(teams []report.MonitorTeam) string {
+	if b.settingsMgr == nil {
+		return ""
+	}
+	s := b.settingsMgr.Get()
+
+	var mentions []string
+	seen := map[string]bool{}
+	for _, team := range teams {
+		for _, id := range s.DiscordUsersForSleeperUser(team.OwnerID) {
+			if !seen[id] {
+				seen[id] = true
+				mentions = append(mentions, "<@"+id+">")
+			}
+		}
+	}
+	if len(mentions) == 0 {
+		return ""
+	}
+	return strings.Join(mentions, " ") + " - you have starters flagged above. Check your lineup before kickoff."
 }

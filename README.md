@@ -29,7 +29,8 @@ only fire if the noted setting is enabled.
 | Wednesday | 7:31 AM | league | Waiver Report | Completed waiver/free-agent adds and drops with FAAB bids *(daily instead of Wednesday-only if `DAILY_WAIVER=true`)* |
 | Thursday | 7:30 PM | ET | Matchups | Upcoming week's pairings plus each matchup's projected scoreboard |
 | Friday | 7:30 AM | league | Weekday Scoreboard | Current scores plus each matchup's approximate projected final score |
-| Sunday | 7:30 AM | league | Injury Monitor *(optional, `MONITOR_REPORT`, on by default)* | Starting lineup problems to fix before kickoff: empty slots, starters on bye or without an NFL team, and starters with an injury designation (Questionable, Doubtful, Out, IR, PUP, Suspended). Uses freshly fetched injury data; bench and IR slots are ignored |
+| Sunday | 7:30 AM | league | Injury Monitor *(optional, `MONITOR_REPORT`, on by default)* | Starting lineup problems to fix before kickoff: empty slots, starters on bye or without an NFL team, and starters with an injury designation (Questionable, Doubtful, Out, IR, PUP, Suspended). Uses freshly fetched injury data; bench and IR slots, and games already under way, are ignored. Pings [linked](#team-links) managers of flagged teams |
+| Sunday | 11:45 AM | ET | Injury Monitor update *(same toggle)* | Re-checks lineups after teams announce inactives; posts the current list again only if something new turned up since the morning, pinging just those managers |
 | Sunday | 4:00 PM | ET | Scoreboard | In-progress scores for every matchup |
 | Sunday | 4:00 PM | ET | Close Scores | Matchups still within the close-game threshold (`CLOSE_SCORES_THRESHOLD`, default 15 pts) |
 | Sunday | 8:00 PM | ET | Scoreboard | In-progress scores, evening update |
@@ -219,6 +220,8 @@ Once someone is linked:
   pings them.
 - @mention answers know the asker's team (so "is my team cooked?" works)
   and the team of anyone they @mention.
+- The Sunday Injury Monitor pings them when their starting lineup has
+  something to fix.
 
 `/settings view` and the web portal list the links. Remove one with
 `/settings unlink` or the portal's checkboxes. A team can be linked to more

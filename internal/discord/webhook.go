@@ -29,7 +29,16 @@ func NewClient(webhookURL string) *Client {
 }
 
 type payload struct {
-	Content string `json:"content"`
+	Content         string          `json:"content"`
+	AllowedMentions allowedMentions `json:"allowed_mentions"`
+}
+
+// allowedMentions limits which mentions in a message actually notify
+// anyone. Webhooks ping everything by default; only explicit user mentions
+// (e.g. the injury monitor pinging managers) should, never an @everyone or
+// role mention that slipped into a team name or AI-written recap.
+type allowedMentions struct {
+	Parse []string `json:"parse"`
 }
 
 // Send posts text to the configured webhook, splitting it into multiple
@@ -63,7 +72,7 @@ func (c *Client) SendRich(ctx context.Context, text string) error {
 }
 
 func (c *Client) send(ctx context.Context, content string) error {
-	body, err := json.Marshal(payload{Content: content})
+	body, err := json.Marshal(payload{Content: content, AllowedMentions: allowedMentions{Parse: []string{"users"}}})
 	if err != nil {
 		return err
 	}

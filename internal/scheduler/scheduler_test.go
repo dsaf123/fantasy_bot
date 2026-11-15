@@ -4,6 +4,7 @@ import (
 	"sort"
 	"testing"
 
+	"fantasy_bot/internal/bot"
 	"fantasy_bot/internal/config"
 	"fantasy_bot/internal/settings"
 )
@@ -98,8 +99,22 @@ func TestBuildJobsJobEnabledOverrideCanEnableBeyondConfigDefault(t *testing.T) {
 	cfg := baseConfig()
 	cfg.MonitorReport = false // env default: monitor off
 	jobs := buildJobs(cfg, settings.Settings{JobEnabled: map[string]bool{"monitor": true}})
-	if matches := jobByName(jobs, "monitor"); len(matches) != 1 {
-		t.Errorf("monitor jobs = %d, want 1 when portal explicitly enables it over the .env default", len(matches))
+	if matches := jobByName(jobs, "monitor"); len(matches) != 2 {
+		t.Errorf("monitor jobs = %d, want 2 (morning + pre-kickoff) when portal explicitly enables it over the .env default", len(matches))
+	}
+}
+
+func TestBuildJobsMonitorRunsMorningAndPreKickoff(t *testing.T) {
+	tzOverride := "America/Chicago"
+	jobs := jobByName(buildJobs(baseConfig(), settings.Settings{Timezone: &tzOverride}), "monitor")
+	want := []jobSpec{
+		{"monitor", tz("America/Chicago", "30 7 * * 0"), bot.ReportMonitor},
+		// Pinned to ET like the other game-window jobs: inactives come out
+		// ~90 minutes before the 1pm ET kickoffs wherever the league is.
+		{"monitor", tz(gameTimezone, "45 11 * * 0"), bot.ReportMonitorUpdate},
+	}
+	if len(jobs) != len(want) || jobs[0] != want[0] || jobs[1] != want[1] {
+		t.Errorf("monitor jobs = %+v, want %+v", jobs, want)
 	}
 }
 
